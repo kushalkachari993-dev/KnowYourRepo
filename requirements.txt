@@ -1,0 +1,11 @@
+PyPDF2
+python-docx
+markdown
+beautifulsoup4
+streamlit
+requests
+chromadb
+gdown
+pymilvus
+python-dotenv
+sentence-transformers

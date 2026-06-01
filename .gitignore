@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+data/raw/
+data/chroma/
+data/processed/
+
+.streamlit/secrets.toml
+Untitled
+*.log
