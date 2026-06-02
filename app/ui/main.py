@@ -386,6 +386,10 @@ def is_signed_in() -> bool:
     return bool(st.session_state.get("auth_session"))
 
 
+def anonymous_repo_limit_mb() -> int:
+    return int(getattr(settings, "ANONYMOUS_REPO_LIMIT_MB", 100))
+
+
 def render_auth_form(location: str = "main") -> None:
     if not settings.SUPABASE_URL or not settings.SUPABASE_ANON_KEY:
         st.info("Supabase Auth is not configured yet.")
@@ -531,7 +535,7 @@ def render_sidebar() -> None:
                 st.rerun()
         else:
             st.caption("Anonymous session")
-            st.caption(f"Repos up to {settings.ANONYMOUS_REPO_LIMIT_MB} MB can be indexed without sign-in.")
+            st.caption(f"Repos up to {anonymous_repo_limit_mb()} MB can be indexed without sign-in.")
             with st.expander("Sign in for larger repos"):
                 render_auth_form("sidebar")
 
@@ -637,7 +641,7 @@ if is_signed_in():
     st.success(f"Signed in as {current_user().get('email', current_user_id())}")
 else:
     st.info(
-        f"Anonymous mode: GitHub repositories up to {settings.ANONYMOUS_REPO_LIMIT_MB} MB can be indexed without sign-in. "
+        f"Anonymous mode: GitHub repositories up to {anonymous_repo_limit_mb()} MB can be indexed without sign-in. "
         "Sign in for larger repositories and a more stable workspace."
     )
 
@@ -676,14 +680,15 @@ with source_col:
                 try:
                     clean_source_url = source_url.strip()
                     source_connector = get_source_connector()
+                    repo_limit_mb = anonymous_repo_limit_mb()
                     requires_auth, size_mb = source_connector.requires_auth_for_anonymous(
                         clean_source_url,
-                        settings.ANONYMOUS_REPO_LIMIT_MB,
+                        repo_limit_mb,
                     )
                     if requires_auth and not is_signed_in():
                         st.warning(
                             f"This GitHub repository is about {size_mb:.1f} MB. "
-                            f"Sign in to index repositories over {settings.ANONYMOUS_REPO_LIMIT_MB} MB."
+                            f"Sign in to index repositories over {repo_limit_mb} MB."
                         )
                     else:
                         user_id = current_user_id()
