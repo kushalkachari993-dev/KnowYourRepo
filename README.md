@@ -47,6 +47,7 @@ ZILLIZ_TOKEN=your-zilliz-token
 COLLECTION_NAME=vectorEMBD
 SUPABASE_URL=your-supabase-project-url
 SUPABASE_ANON_KEY=your-supabase-anon-key
+ANONYMOUS_REPO_LIMIT_MB=100
 EMBEDDING_PROVIDER=huggingface
 EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
 EMBEDDING_DIMENSION=384
@@ -101,6 +102,8 @@ document_id
 ```
 
 Search filters by `user_id`, so each signed-in user only retrieves their own indexed chunks.
+
+Anonymous users can index GitHub repositories up to `ANONYMOUS_REPO_LIMIT_MB`. Larger repositories require sign-in. Anonymous indexing uses a temporary browser-session user ID, so it is intended for short-lived exploration rather than persistent workspaces.
 
 Migration
 ---------

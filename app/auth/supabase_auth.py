@@ -13,6 +13,13 @@ class AuthSession:
     refresh_token: str
 
 
+@dataclass
+class SignUpResult:
+    user: Dict[str, Any]
+    session: AuthSession | None
+    confirmation_required: bool
+
+
 class SupabaseAuthClient:
     """Small Supabase Auth REST client for Streamlit."""
 
@@ -25,7 +32,7 @@ class SupabaseAuthClient:
 
         self.auth_url = f"{self.url}/auth/v1"
 
-    def sign_up(self, email: str, password: str) -> AuthSession:
+    def sign_up(self, email: str, password: str) -> SignUpResult:
         response = requests.post(
             f"{self.auth_url}/signup",
             headers=self._headers(),
@@ -33,7 +40,20 @@ class SupabaseAuthClient:
             timeout=20,
         )
         data = self._handle_response(response)
-        return self._session_from_response(data)
+        user = data.get("user")
+        access_token = data.get("access_token")
+
+        if access_token:
+            return SignUpResult(
+                user=user,
+                session=self._session_from_response(data),
+                confirmation_required=False,
+            )
+
+        if user:
+            return SignUpResult(user=user, session=None, confirmation_required=True)
+
+        raise RuntimeError("Supabase did not return a user. Check your Auth settings.")
 
     def sign_in(self, email: str, password: str) -> AuthSession:
         response = requests.post(

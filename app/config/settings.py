@@ -52,6 +52,7 @@ class Settings:
     # ============================================================
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
+    ANONYMOUS_REPO_LIMIT_MB: int = 100
     
     # ============================================================
     # Document Processing
@@ -100,6 +101,7 @@ class Settings:
             CHAT_MODEL=llama3.2:3b
             VECTOR_DB_BACKEND=chroma
             SUPABASE_URL=https://your-project.supabase.co
+            ANONYMOUS_REPO_LIMIT_MB=100
             CHUNK_SIZE=1000
             DEFAULT_TOP_K=10
         """
@@ -121,6 +123,7 @@ class Settings:
             ZILLIZ_TOKEN=os.getenv("ZILLIZ_TOKEN", cls.ZILLIZ_TOKEN),
             SUPABASE_URL=os.getenv("SUPABASE_URL", cls.SUPABASE_URL),
             SUPABASE_ANON_KEY=os.getenv("SUPABASE_ANON_KEY", cls.SUPABASE_ANON_KEY),
+            ANONYMOUS_REPO_LIMIT_MB=int(os.getenv("ANONYMOUS_REPO_LIMIT_MB", cls.ANONYMOUS_REPO_LIMIT_MB)),
         )
 
 

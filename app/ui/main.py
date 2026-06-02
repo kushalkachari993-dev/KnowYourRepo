@@ -17,6 +17,7 @@ from app.ingestion.ingest import get_pipeline
 from app.retrieval.aggregator import get_aggregator
 from app.retrieval.chat import get_document_chat
 from app.retrieval.search import get_searcher
+from app.sources.connectors import get_source_connector
 
 
 st.set_page_config(
@@ -366,6 +367,8 @@ def initialize_state() -> None:
         st.session_state.last_documents = []
     if "auth_session" not in st.session_state:
         st.session_state.auth_session = None
+    if "anon_user_id" not in st.session_state:
+        st.session_state.anon_user_id = f"anon:{uuid4().hex}"
 
 
 def current_user() -> dict:
@@ -376,77 +379,57 @@ def current_user() -> dict:
 
 
 def current_user_id() -> str:
-    return current_user().get("id", "")
+    return current_user().get("id", "") or st.session_state.get("anon_user_id", "")
 
 
-def require_user_id() -> str:
-    user_id = current_user_id()
-    if not user_id:
-        raise RuntimeError("You must be signed in before indexing or searching.")
-    return user_id
+def is_signed_in() -> bool:
+    return bool(st.session_state.get("auth_session"))
 
 
-def render_auth_gate() -> bool:
-    if st.session_state.get("auth_session"):
-        return True
-
-    st.html(
-        dedent(
-            """
-            <div class="app-shell">
-                <div class="topbar">
-                    <div class="brand">
-                        <div class="brand-mark">SL</div>
-                        <div>SourceLink AI</div>
-                    </div>
-                    <div class="status-pill"><span class="dot"></span>Secure workspace</div>
-                </div>
-                <section class="hero">
-                    <div class="status-pill"><span class="dot"></span>Sign in to isolate your knowledge base</div>
-                    <h1>
-                        Your sources.
-                        <span class="hero-gradient">Your private search space.</span>
-                    </h1>
-                    <p>Each indexed chunk is tagged with your Supabase user ID, and search only returns your own documents.</p>
-                </section>
-            </div>
-            """
-        )
-    )
-
+def render_auth_form(location: str = "main") -> None:
     if not settings.SUPABASE_URL or not settings.SUPABASE_ANON_KEY:
-        st.error("SUPABASE_URL and SUPABASE_ANON_KEY are required in .env before authentication can work.")
-        return False
+        st.info("Supabase Auth is not configured yet.")
+        return
 
-    auth_mode = st.radio("Account", ["Sign in", "Sign up"], horizontal=True, label_visibility="collapsed")
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
+    auth_mode = st.radio(
+        "Account",
+        ["Sign in", "Sign up"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key=f"{location}_auth_mode",
+    )
+    email = st.text_input("Email", key=f"{location}_auth_email")
+    password = st.text_input("Password", type="password", key=f"{location}_auth_password")
 
-    if st.button(auth_mode, type="primary", use_container_width=True):
+    if st.button(auth_mode, type="primary", use_container_width=True, key=f"{location}_auth_button"):
         if not email.strip() or not password:
             st.warning("Enter both email and password.")
         else:
             try:
                 auth_client = get_auth_client()
                 if auth_mode == "Sign up":
-                    session = auth_client.sign_up(email.strip(), password)
-                    st.success("Account created. You are signed in.")
+                    result = auth_client.sign_up(email.strip(), password)
+                    if result.session:
+                        st.session_state.auth_session = result.session
+                        st.success("Account created. You are signed in.")
+                        st.rerun()
+                    else:
+                        st.success("Account created. Check your email if Supabase requires confirmation, then sign in.")
+                        return
                 else:
                     session = auth_client.sign_in(email.strip(), password)
+                    st.session_state.auth_session = session
                     st.success("Signed in.")
-                st.session_state.auth_session = session
-                st.rerun()
+                    st.rerun()
             except Exception as exc:
                 st.error(f"Authentication error: {exc}")
-
-    return False
 
 
 def ingest_uploaded_files(uploaded_files) -> None:
     with st.spinner("Indexing uploaded files..."):
         progress_bar = st.progress(0)
         total_chunks = 0
-        user_id = require_user_id()
+        user_id = current_user_id()
         source_id = f"upload_batch:{user_id}:{uuid4().hex[:12]}"
 
         for index, uploaded_file in enumerate(uploaded_files):
@@ -546,6 +529,11 @@ def render_sidebar() -> None:
                 st.session_state.last_chunks = []
                 st.session_state.last_documents = []
                 st.rerun()
+        else:
+            st.caption("Anonymous session")
+            st.caption(f"Repos up to {settings.ANONYMOUS_REPO_LIMIT_MB} MB can be indexed without sign-in.")
+            with st.expander("Sign in for larger repos"):
+                render_auth_form("sidebar")
 
         status = st.session_state.pipeline.get_status()
         st.metric("Indexed chunks", status["total_chunks"])
@@ -557,7 +545,7 @@ def render_sidebar() -> None:
         if st.button("Index data/raw", use_container_width=True):
             with st.spinner("Indexing local demo directory..."):
                 try:
-                    user_id = require_user_id()
+                    user_id = current_user_id()
                     source_id = f"local_demo:{user_id}"
                     results = st.session_state.pipeline.ingest_directory(
                         str(settings.RAW_DATA_DIR),
@@ -640,12 +628,18 @@ def render_hero(status_count: int) -> None:
 
 inject_styles()
 initialize_state()
-if not render_auth_gate():
-    st.stop()
 render_sidebar()
 
 status = st.session_state.pipeline.get_status()
 render_hero(status["total_chunks"])
+
+if is_signed_in():
+    st.success(f"Signed in as {current_user().get('email', current_user_id())}")
+else:
+    st.info(
+        f"Anonymous mode: GitHub repositories up to {settings.ANONYMOUS_REPO_LIMIT_MB} MB can be indexed without sign-in. "
+        "Sign in for larger repositories and a more stable workspace."
+    )
 
 st.html(
     dedent(
@@ -680,16 +674,28 @@ with source_col:
         else:
             with st.spinner("Fetching and indexing source files..."):
                 try:
-                    user_id = require_user_id()
-                    results = st.session_state.pipeline.ingest_source_url(source_url.strip(), user_id=user_id)
-                    if results:
-                        st.success(f"Indexed {len(results)} files.")
-                        for filename, count in results.items():
-                            st.write(f"{filename}: {count} chunks")
+                    clean_source_url = source_url.strip()
+                    source_connector = get_source_connector()
+                    requires_auth, size_mb = source_connector.requires_auth_for_anonymous(
+                        clean_source_url,
+                        settings.ANONYMOUS_REPO_LIMIT_MB,
+                    )
+                    if requires_auth and not is_signed_in():
+                        st.warning(
+                            f"This GitHub repository is about {size_mb:.1f} MB. "
+                            f"Sign in to index repositories over {settings.ANONYMOUS_REPO_LIMIT_MB} MB."
+                        )
                     else:
-                        st.warning("No supported files found in that source.")
-                    time.sleep(1)
-                    st.rerun()
+                        user_id = current_user_id()
+                        results = st.session_state.pipeline.ingest_source_url(clean_source_url, user_id=user_id)
+                        if results:
+                            st.success(f"Indexed {len(results)} files.")
+                            for filename, count in results.items():
+                                st.write(f"{filename}: {count} chunks")
+                        else:
+                            st.warning("No supported files found in that source.")
+                        time.sleep(1)
+                        st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
 
@@ -754,7 +760,7 @@ with threshold_col:
 if search_requested and query.strip():
     with st.spinner("Searching indexed documents..."):
         try:
-            results = st.session_state.searcher.search(query, top_k=top_k * 3, user_id=require_user_id())
+            results = st.session_state.searcher.search(query, top_k=top_k * 3, user_id=current_user_id())
             results = [result for result in results if result["similarity"] >= similarity_threshold]
 
             if not results:

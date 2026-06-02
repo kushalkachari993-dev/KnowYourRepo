@@ -24,6 +24,29 @@ class SourceDocument:
 class SourceConnector:
     """Fetch public source links into temporary local files for ingestion."""
 
+    def estimate_size_mb(self, source_url: str) -> float | None:
+        """Best-effort source size estimate before download."""
+        parsed = urlparse(source_url)
+        host = parsed.netloc.lower()
+
+        if "github.com" in host:
+            owner, repo = self._parse_github_repo(source_url)
+            repo_api_url = f"https://api.github.com/repos/{owner}/{repo}"
+            repo_response = requests.get(repo_api_url, timeout=20)
+            repo_response.raise_for_status()
+            size_kb = repo_response.json().get("size")
+            if size_kb is None:
+                return None
+            return float(size_kb) / 1024
+
+        return None
+
+    def requires_auth_for_anonymous(self, source_url: str, limit_mb: int) -> tuple[bool, float | None]:
+        size_mb = self.estimate_size_mb(source_url)
+        if size_mb is None:
+            return False, None
+        return size_mb > limit_mb, size_mb
+
     def fetch(self, source_url: str, workspace_dir: Path) -> List[SourceDocument]:
         parsed = urlparse(source_url)
         host = parsed.netloc.lower()
