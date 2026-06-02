@@ -50,14 +50,15 @@ def inject_styles() -> None:
         }
 
         .block-container {
-            max-width: 1180px;
-            padding-top: 1.1rem;
+            max-width: 1120px;
+            padding-top: 1rem;
             padding-bottom: 3rem;
         }
 
         section[data-testid="stSidebar"] {
             background: #ffffff;
             border-right: 1px solid var(--line);
+            opacity: 1;
         }
 
         h1, h2, h3, p {
@@ -146,7 +147,7 @@ def inject_styles() -> None:
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin: 0 auto 4.8rem auto;
+            margin: 0 auto 1.6rem auto;
         }
 
         .brand {
@@ -183,6 +184,12 @@ def inject_styles() -> None:
             font-weight: 700;
         }
 
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
         .dot {
             width: 9px;
             height: 9px;
@@ -191,15 +198,19 @@ def inject_styles() -> None:
         }
 
         .hero {
-            text-align: center;
-            margin: 0 auto 2.8rem auto;
+            text-align: left;
+            margin: 0 auto 1.3rem auto;
+            display: grid;
+            grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+            gap: 28px;
+            align-items: end;
         }
 
         .hero h1 {
-            max-width: 860px;
-            margin: 1.7rem auto 1.2rem auto;
-            font-size: clamp(3.2rem, 6vw, 5.7rem);
-            line-height: 0.98;
+            max-width: 680px;
+            margin: 1.1rem 0 1rem 0;
+            font-size: clamp(2.6rem, 5vw, 4.5rem);
+            line-height: 1;
             font-weight: 900;
             color: #111827;
         }
@@ -213,19 +224,77 @@ def inject_styles() -> None:
         }
 
         .hero p {
-            max-width: 760px;
-            margin: 0 auto;
+            max-width: 650px;
+            margin: 0;
             font-size: 1.18rem;
             line-height: 1.55;
             color: var(--muted);
+        }
+
+        .auth-card {
+            background: #ffffff;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 22px;
+            box-shadow: 0 20px 50px rgba(16, 24, 40, 0.08);
+        }
+
+        .auth-card-title {
+            font-weight: 850;
+            color: #111827;
+            margin-bottom: 6px;
+        }
+
+        .auth-card-copy {
+            color: var(--muted);
+            line-height: 1.45;
+            font-size: 0.95rem;
+        }
+
+        .workspace-card {
+            background: #ffffff;
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            padding: 26px;
+            box-shadow: 0 24px 70px rgba(16, 24, 40, 0.08);
+            margin: 1.4rem 0 1.4rem 0;
+        }
+
+        .workspace-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 18px;
+            margin-bottom: 22px;
+        }
+
+        .workspace-head h2 {
+            margin: 0;
+            color: #111827;
+            font-size: 1.45rem;
+        }
+
+        .workspace-head p {
+            margin: 6px 0 0 0;
+            color: var(--muted);
+        }
+
+        .main-notice {
+            border: 1px solid #bfdbfe;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border-radius: 14px;
+            padding: 14px 16px;
+            margin: 0 0 18px 0;
+            font-weight: 650;
         }
 
         .feature-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 18px;
-            max-width: 840px;
-            margin: 2.8rem auto 3.2rem auto;
+            max-width: none;
+            margin: 1.2rem 0 1.8rem 0;
         }
 
         .feature-card {
@@ -233,7 +302,7 @@ def inject_styles() -> None:
             border: 1px solid var(--line);
             border-radius: 16px;
             padding: 24px;
-            min-height: 130px;
+            min-height: 116px;
             box-shadow: 0 20px 44px rgba(16, 24, 40, 0.06);
         }
 
@@ -242,6 +311,12 @@ def inject_styles() -> None:
             font-size: 1.55rem;
             line-height: 1;
             margin-bottom: 20px;
+        }
+
+        .muted-line {
+            color: var(--muted);
+            font-size: 0.92rem;
+            margin: 4px 0 14px 0;
         }
 
         .feature-title {
@@ -344,7 +419,8 @@ def inject_styles() -> None:
                 font-size: 3rem;
             }
             .feature-grid,
-            .metric-row {
+            .metric-row,
+            .hero {
                 grid-template-columns: 1fr;
             }
             .panel {
@@ -536,8 +612,6 @@ def render_sidebar() -> None:
         else:
             st.caption("Anonymous session")
             st.caption(f"Repos up to {anonymous_repo_limit_mb()} MB can be indexed without sign-in.")
-            with st.expander("Sign in for larger repos"):
-                render_auth_form("sidebar")
 
         status = st.session_state.pipeline.get_status()
         st.metric("Indexed chunks", status["total_chunks"])
@@ -583,6 +657,19 @@ def render_sidebar() -> None:
 
 
 def render_hero(status_count: int) -> None:
+    if is_signed_in():
+        auth_html = (
+            f'<div class="auth-card-title">Signed in</div>'
+            f'<div class="auth-card-copy">{html.escape(current_user().get("email", current_user_id()))}<br>'
+            'Large repositories are enabled for this account.</div>'
+        )
+    else:
+        auth_html = (
+            '<div class="auth-card-title">Anonymous mode</div>'
+            f'<div class="auth-card-copy">Index public GitHub repos up to {anonymous_repo_limit_mb()} MB without an account. '
+            'Sign in below for larger repositories and persistent identity.</div>'
+        )
+
     st.html(
         dedent(
             f"""
@@ -592,38 +679,25 @@ def render_hero(status_count: int) -> None:
                     <div class="brand-mark">SL</div>
                     <div>SourceLink AI</div>
                 </div>
-                <div class="status-pill"><span class="dot"></span>{status_count} indexed chunks</div>
+                <div class="nav-actions">
+                    <div class="status-pill"><span class="dot"></span>{status_count} indexed chunks</div>
+                    <div class="status-pill">{html.escape(settings.VECTOR_DB_BACKEND)}</div>
+                </div>
             </div>
 
             <section class="hero">
-                <div class="status-pill"><span class="dot"></span>Your documents, now an AI assistant</div>
-                <h1>
-                    Connect your sources.
-                    <span class="hero-gradient">Chat with every document.</span>
-                </h1>
-                <p>
-                    Paste a Drive folder, connect a public repository, or upload files.
-                    SourceLink indexes the knowledge and answers only from retrieved document context.
-                </p>
+                <div>
+                    <div class="status-pill"><span class="dot"></span>Temporary AI workspace for repos and documents</div>
+                    <h1>
+                        Know your repo.
+                        <span class="hero-gradient">Ask every file.</span>
+                    </h1>
+                    <p>
+                        Paste a public GitHub or Drive link, index it for this session, and ask questions grounded only in retrieved source context.
+                    </p>
+                </div>
+                <div class="auth-card">{auth_html}</div>
             </section>
-
-            <div class="feature-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">01</div>
-                    <div class="feature-title">Connect Sources</div>
-                    <div class="feature-copy">Google Drive folders, public GitHub repos, and uploads.</div>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">02</div>
-                    <div class="feature-title">Index Knowledge</div>
-                    <div class="feature-copy">Chunks, embeddings, and source links stay searchable.</div>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">03</div>
-                    <div class="feature-title">Ask Questions</div>
-                    <div class="feature-copy">Chat with the retrieved files and open originals instantly.</div>
-                </div>
-            </div>
         </div>
         """
         ),
@@ -640,21 +714,27 @@ render_hero(status["total_chunks"])
 if is_signed_in():
     st.success(f"Signed in as {current_user().get('email', current_user_id())}")
 else:
-    st.info(
-        f"Anonymous mode: GitHub repositories up to {anonymous_repo_limit_mb()} MB can be indexed without sign-in. "
-        "Sign in for larger repositories and a more stable workspace."
+    st.html(
+        dedent(
+            f"""
+            <div class="main-notice">
+                Anonymous mode is active. GitHub repositories up to {anonymous_repo_limit_mb()} MB can be indexed without sign-in.
+            </div>
+            """
+        )
     )
 
 st.html(
     dedent(
         """
-    <div class="panel">
-        <div class="panel-title">
+    <div class="workspace-card">
+        <div class="workspace-head">
             <div>
                 <div class="section-kicker">Index workspace</div>
                 <h2>Add documents to your assistant</h2>
                 <p>Use a public source link or upload files directly for this demo.</p>
             </div>
+            <div class="status-pill"><span class="dot"></span>Session scoped</div>
         </div>
     </div>
     """
@@ -665,7 +745,7 @@ source_col, upload_col = st.columns([1, 1], gap="large")
 
 with source_col:
     st.markdown("#### Source link")
-    st.caption(f"Indexing target: {settings.VECTOR_DB_BACKEND} / {settings.COLLECTION_NAME}")
+    st.markdown(f'<div class="muted-line">Indexing target: {settings.VECTOR_DB_BACKEND} / {settings.COLLECTION_NAME}</div>', unsafe_allow_html=True)
     source_url = st.text_input(
         "Public GitHub repository or Google Drive link",
         placeholder="https://drive.google.com/drive/folders/...",
@@ -706,7 +786,7 @@ with source_col:
 
 with upload_col:
     st.markdown("#### Upload files")
-    st.caption(f"Indexing target: {settings.VECTOR_DB_BACKEND} / {settings.COLLECTION_NAME}")
+    st.markdown(f'<div class="muted-line">Indexing target: {settings.VECTOR_DB_BACKEND} / {settings.COLLECTION_NAME}</div>', unsafe_allow_html=True)
     uploaded_files = st.file_uploader(
         "Upload PDF, TXT, DOCX, or Markdown",
         type=["pdf", "txt", "docx", "md"],
@@ -719,6 +799,24 @@ with upload_col:
         else:
             st.warning("Upload at least one file first.")
 
+if not is_signed_in():
+    st.html(
+        dedent(
+            """
+            <div class="panel">
+                <div class="panel-title">
+                    <div>
+                        <div class="section-kicker">Account</div>
+                        <h2>Sign in for larger repositories</h2>
+                        <p>Anonymous sessions are fine for small repos. Sign in when the repository is over the free anonymous limit.</p>
+                    </div>
+                </div>
+            </div>
+            """
+        )
+    )
+    render_auth_form("main")
+
 st.html(
     dedent(
         f"""
@@ -730,6 +828,30 @@ st.html(
     </div>
     """
     ),
+)
+
+st.html(
+    dedent(
+        """
+        <div class="feature-grid">
+            <div class="feature-card">
+                <div class="feature-icon">01</div>
+                <div class="feature-title">Connect Sources</div>
+                <div class="feature-copy">Google Drive folders, public GitHub repos, and uploads.</div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">02</div>
+                <div class="feature-title">Index Temporarily</div>
+                <div class="feature-copy">Chunks and embeddings are scoped to the current user or anonymous session.</div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">03</div>
+                <div class="feature-title">Ask Questions</div>
+                <div class="feature-copy">Chat with retrieved files and open originals instantly.</div>
+            </div>
+        </div>
+        """
+    )
 )
 
 st.html(
