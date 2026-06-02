@@ -44,6 +44,7 @@ class DocumentSearcher:
         query: str,
         top_k: int = None,
         filter_metadata: Optional[Dict[str, Any]] = None,
+        user_id: str = None,
     ) -> List[Dict[str, Any]]:
         """
         Search for documents similar to the query.
@@ -75,12 +76,16 @@ class DocumentSearcher:
             logger.error(f"Failed to generate query embedding: {e}")
             raise RuntimeError(f"Query embedding failed: {e}")
         
+        filters = filter_metadata.copy() if filter_metadata else {}
+        if user_id:
+            filters["user_id"] = user_id
+
         # 2. Search vector database
         try:
             raw_results = self.vector_store.similarity_search(
                 query_embedding=query_embedding,
                 top_k=top_k,
-                where=filter_metadata,
+                where=filters or None,
             )
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
@@ -139,6 +144,7 @@ class DocumentSearcher:
         query: str,
         top_k: int = None,
         similarity_threshold: float = None,
+        user_id: str = None,
     ) -> List[Dict[str, Any]]:
         """
         Search and filter by minimum similarity threshold.
@@ -153,7 +159,7 @@ class DocumentSearcher:
         """
         threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
         
-        results = self.search(query, top_k)
+        results = self.search(query, top_k, user_id=user_id)
         
         # Filter by threshold
         filtered_results = [
@@ -185,6 +191,7 @@ class DocumentSearcher:
 def search_documents(
     query: str,
     top_k: int = None,
+    user_id: str = None,
 ) -> List[Dict[str, Any]]:
     """
     Quick search function.
@@ -197,7 +204,7 @@ def search_documents(
         Search results
     """
     searcher = DocumentSearcher()
-    return searcher.search(query, top_k)
+    return searcher.search(query, top_k, user_id=user_id)
 
 
 def get_searcher() -> DocumentSearcher:

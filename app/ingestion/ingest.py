@@ -3,6 +3,7 @@ from pathlib import Path
 import logging
 import uuid
 import tempfile
+import hashlib
 
 from app.ingestion.loader import get_loader
 from app.ingestion.chunker import get_chunker
@@ -50,7 +51,13 @@ class IngestionPipeline:
         
         logger.info("✓ Ingestion pipeline initialized")
 
-    def ingest_file(self, file_path: str, extra_metadata: Optional[Dict[str, Any]] = None) -> int:
+    def ingest_file(
+        self,
+        file_path: str,
+        extra_metadata: Optional[Dict[str, Any]] = None,
+        user_id: str = None,
+        source_id: str = None,
+    ) -> int:
         """
         Ingest a single document file.
         
@@ -71,6 +78,11 @@ class IngestionPipeline:
         document["metadata"].setdefault("source_root", "")
         document["metadata"].setdefault("source_path", str(file_path))
         document["metadata"].setdefault("document_id", self._document_id(document["metadata"], file_path))
+        if user_id:
+            document["metadata"]["user_id"] = user_id
+        if source_id:
+            document["metadata"]["source_id"] = source_id
+        document["metadata"].setdefault("source_id", self._source_id(document["metadata"], file_path))
         
         # 2. Chunk document
         chunks = self.chunker.chunk_document(document)
@@ -99,7 +111,7 @@ class IngestionPipeline:
         
         return len(chunks)
 
-    def ingest_directory(self, directory_path: str) -> Dict[str, int]:
+    def ingest_directory(self, directory_path: str, user_id: str = None, source_id: str = None) -> Dict[str, int]:
         """
         Ingest all supported documents from a directory.
         
@@ -136,6 +148,8 @@ class IngestionPipeline:
                         "source_path": str(file_path),
                         "document_id": f"local:{file_path.resolve()}",
                     },
+                    user_id=user_id,
+                    source_id=source_id or f"local_directory:{dir_path.resolve()}",
                 )
                 results[file_path.name] = num_chunks
                 total_chunks += num_chunks
@@ -147,7 +161,7 @@ class IngestionPipeline:
         
         return results
 
-    def ingest_documents(self, documents: Dict[str, Dict[str, Any]]) -> int:
+    def ingest_documents(self, documents: Dict[str, Dict[str, Any]], user_id: str = None, source_id: str = None) -> int:
         """
         Ingest pre-loaded documents (from DocumentLoader.load_directory()).
         
@@ -164,6 +178,10 @@ class IngestionPipeline:
         for filename, doc_data in documents.items():
             try:
                 # Chunk document
+                if user_id:
+                    doc_data.setdefault("metadata", {})["user_id"] = user_id
+                if source_id:
+                    doc_data.setdefault("metadata", {})["source_id"] = source_id
                 chunks = self.chunker.chunk_document(doc_data)
                 
                 if not chunks:
@@ -195,7 +213,7 @@ class IngestionPipeline:
         
         return total_chunks
 
-    def ingest_source_url(self, source_url: str) -> Dict[str, int]:
+    def ingest_source_url(self, source_url: str, user_id: str = None, source_id: str = None) -> Dict[str, int]:
         """
         Ingest supported documents from a public source URL.
 
@@ -205,6 +223,7 @@ class IngestionPipeline:
         """
         connector = get_source_connector()
         results = {}
+        source_id = source_id or self._stable_id("source", source_url)
 
         with tempfile.TemporaryDirectory(prefix="document_source_") as temp_dir:
             source_documents = connector.fetch(source_url, Path(temp_dir))
@@ -217,6 +236,8 @@ class IngestionPipeline:
                     num_chunks = self.ingest_file(
                         str(source_document.path),
                         extra_metadata=source_document.metadata,
+                        user_id=user_id,
+                        source_id=source_id,
                     )
                     display_name = source_document.metadata.get("source_path", source_document.path.name)
                     results[display_name] = num_chunks
@@ -243,6 +264,14 @@ class IngestionPipeline:
             return source_url
 
         return f"local:{Path(file_path).resolve()}"
+
+    def _source_id(self, metadata: Dict[str, Any], file_path: str) -> str:
+        source_root = metadata.get("source_root") or metadata.get("source_url") or metadata.get("source_path") or file_path
+        return self._stable_id("source", str(source_root))
+
+    def _stable_id(self, prefix: str, value: str) -> str:
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+        return f"{prefix}:{digest}"
 
     def get_status(self) -> Dict[str, Any]:
         """
@@ -274,7 +303,7 @@ class IngestionPipeline:
 # Convenience Functions
 # ============================================================
 
-def ingest_file(file_path: str) -> int:
+def ingest_file(file_path: str, user_id: str = None, source_id: str = None) -> int:
     """
     Quick function to ingest a single file.
     
@@ -285,10 +314,10 @@ def ingest_file(file_path: str) -> int:
         Number of chunks ingested
     """
     pipeline = IngestionPipeline()
-    return pipeline.ingest_file(file_path)
+    return pipeline.ingest_file(file_path, user_id=user_id, source_id=source_id)
 
 
-def ingest_directory(directory_path: str) -> Dict[str, int]:
+def ingest_directory(directory_path: str, user_id: str = None, source_id: str = None) -> Dict[str, int]:
     """
     Quick function to ingest a directory.
     
@@ -299,7 +328,7 @@ def ingest_directory(directory_path: str) -> Dict[str, int]:
         Dictionary mapping filename -> chunk count
     """
     pipeline = IngestionPipeline()
-    return pipeline.ingest_directory(directory_path)
+    return pipeline.ingest_directory(directory_path, user_id=user_id, source_id=source_id)
 
 
 def get_pipeline() -> IngestionPipeline:

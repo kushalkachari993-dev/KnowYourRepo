@@ -3,6 +3,7 @@ import sys
 import time
 from pathlib import Path
 from textwrap import dedent
+from uuid import uuid4
 
 import streamlit as st
 
@@ -11,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.config.settings import settings
+from app.auth.supabase_auth import get_auth_client
 from app.ingestion.ingest import get_pipeline
 from app.retrieval.aggregator import get_aggregator
 from app.retrieval.chat import get_document_chat
@@ -362,12 +364,90 @@ def initialize_state() -> None:
         st.session_state.chat = get_document_chat()
         st.session_state.last_chunks = []
         st.session_state.last_documents = []
+    if "auth_session" not in st.session_state:
+        st.session_state.auth_session = None
+
+
+def current_user() -> dict:
+    session = st.session_state.get("auth_session")
+    if not session:
+        return {}
+    return session.user
+
+
+def current_user_id() -> str:
+    return current_user().get("id", "")
+
+
+def require_user_id() -> str:
+    user_id = current_user_id()
+    if not user_id:
+        raise RuntimeError("You must be signed in before indexing or searching.")
+    return user_id
+
+
+def render_auth_gate() -> bool:
+    if st.session_state.get("auth_session"):
+        return True
+
+    st.html(
+        dedent(
+            """
+            <div class="app-shell">
+                <div class="topbar">
+                    <div class="brand">
+                        <div class="brand-mark">SL</div>
+                        <div>SourceLink AI</div>
+                    </div>
+                    <div class="status-pill"><span class="dot"></span>Secure workspace</div>
+                </div>
+                <section class="hero">
+                    <div class="status-pill"><span class="dot"></span>Sign in to isolate your knowledge base</div>
+                    <h1>
+                        Your sources.
+                        <span class="hero-gradient">Your private search space.</span>
+                    </h1>
+                    <p>Each indexed chunk is tagged with your Supabase user ID, and search only returns your own documents.</p>
+                </section>
+            </div>
+            """
+        )
+    )
+
+    if not settings.SUPABASE_URL or not settings.SUPABASE_ANON_KEY:
+        st.error("SUPABASE_URL and SUPABASE_ANON_KEY are required in .env before authentication can work.")
+        return False
+
+    auth_mode = st.radio("Account", ["Sign in", "Sign up"], horizontal=True, label_visibility="collapsed")
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+
+    if st.button(auth_mode, type="primary", use_container_width=True):
+        if not email.strip() or not password:
+            st.warning("Enter both email and password.")
+        else:
+            try:
+                auth_client = get_auth_client()
+                if auth_mode == "Sign up":
+                    session = auth_client.sign_up(email.strip(), password)
+                    st.success("Account created. You are signed in.")
+                else:
+                    session = auth_client.sign_in(email.strip(), password)
+                    st.success("Signed in.")
+                st.session_state.auth_session = session
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Authentication error: {exc}")
+
+    return False
 
 
 def ingest_uploaded_files(uploaded_files) -> None:
     with st.spinner("Indexing uploaded files..."):
         progress_bar = st.progress(0)
         total_chunks = 0
+        user_id = require_user_id()
+        source_id = f"upload_batch:{user_id}:{uuid4().hex[:12]}"
 
         for index, uploaded_file in enumerate(uploaded_files):
             temp_path = settings.RAW_DATA_DIR / uploaded_file.name
@@ -382,6 +462,8 @@ def ingest_uploaded_files(uploaded_files) -> None:
                         "source_path": str(temp_path),
                         "document_id": f"upload:{uploaded_file.name}",
                     },
+                    user_id=user_id,
+                    source_id=source_id,
                 )
                 total_chunks += num_chunks
                 st.success(f"{uploaded_file.name}: {num_chunks} chunks")
@@ -451,6 +533,19 @@ def render_results(aggregated_results) -> None:
 def render_sidebar() -> None:
     with st.sidebar:
         st.header("Controls")
+        user = current_user()
+        if user:
+            st.caption(f"Signed in as {user.get('email', user.get('id', 'user'))}")
+            if st.button("Sign out", use_container_width=True):
+                try:
+                    auth_client = get_auth_client()
+                    auth_client.sign_out(st.session_state.auth_session.access_token)
+                except Exception:
+                    pass
+                st.session_state.auth_session = None
+                st.session_state.last_chunks = []
+                st.session_state.last_documents = []
+                st.rerun()
 
         status = st.session_state.pipeline.get_status()
         st.metric("Indexed chunks", status["total_chunks"])
@@ -462,7 +557,13 @@ def render_sidebar() -> None:
         if st.button("Index data/raw", use_container_width=True):
             with st.spinner("Indexing local demo directory..."):
                 try:
-                    results = st.session_state.pipeline.ingest_directory(str(settings.RAW_DATA_DIR))
+                    user_id = require_user_id()
+                    source_id = f"local_demo:{user_id}"
+                    results = st.session_state.pipeline.ingest_directory(
+                        str(settings.RAW_DATA_DIR),
+                        user_id=user_id,
+                        source_id=source_id,
+                    )
                     st.success(f"Indexed {len(results)} files.")
                     time.sleep(1)
                     st.rerun()
@@ -539,6 +640,8 @@ def render_hero(status_count: int) -> None:
 
 inject_styles()
 initialize_state()
+if not render_auth_gate():
+    st.stop()
 render_sidebar()
 
 status = st.session_state.pipeline.get_status()
@@ -577,7 +680,8 @@ with source_col:
         else:
             with st.spinner("Fetching and indexing source files..."):
                 try:
-                    results = st.session_state.pipeline.ingest_source_url(source_url.strip())
+                    user_id = require_user_id()
+                    results = st.session_state.pipeline.ingest_source_url(source_url.strip(), user_id=user_id)
                     if results:
                         st.success(f"Indexed {len(results)} files.")
                         for filename, count in results.items():
@@ -650,7 +754,7 @@ with threshold_col:
 if search_requested and query.strip():
     with st.spinner("Searching indexed documents..."):
         try:
-            results = st.session_state.searcher.search(query, top_k=top_k * 3)
+            results = st.session_state.searcher.search(query, top_k=top_k * 3, user_id=require_user_id())
             results = [result for result in results if result["similarity"] >= similarity_threshold]
 
             if not results:

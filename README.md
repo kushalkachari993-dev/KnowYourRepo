@@ -45,6 +45,8 @@ VECTOR_DB_BACKEND=zilliz
 ZILLIZ_URI=your-zilliz-endpoint
 ZILLIZ_TOKEN=your-zilliz-token
 COLLECTION_NAME=vectorEMBD
+SUPABASE_URL=your-supabase-project-url
+SUPABASE_ANON_KEY=your-supabase-anon-key
 EMBEDDING_PROVIDER=huggingface
 EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
 EMBEDDING_DIMENSION=384
@@ -86,6 +88,19 @@ How It Works
 5. Search returns relevant chunks grouped by original document.
 6. The UI shows excerpts and an `Open source` or `Download file` action.
 7. The chat panel answers follow-up questions using the most recent retrieved chunks.
+
+User Isolation
+--------------
+
+Supabase Auth is used for sign in/sign up. Every ingested chunk is tagged with:
+
+```text
+user_id
+source_id
+document_id
+```
+
+Search filters by `user_id`, so each signed-in user only retrieves their own indexed chunks.
 
 Migration
 ---------

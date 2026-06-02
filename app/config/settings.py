@@ -46,6 +46,12 @@ class Settings:
     COLLECTION_NAME: str = "documents"
     ZILLIZ_URI: str = ""
     ZILLIZ_TOKEN: str = ""
+
+    # ============================================================
+    # Supabase Auth Configuration
+    # ============================================================
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
     
     # ============================================================
     # Document Processing
@@ -93,6 +99,7 @@ class Settings:
             CHAT_PROVIDER=groq
             CHAT_MODEL=llama3.2:3b
             VECTOR_DB_BACKEND=chroma
+            SUPABASE_URL=https://your-project.supabase.co
             CHUNK_SIZE=1000
             DEFAULT_TOP_K=10
         """
@@ -112,6 +119,8 @@ class Settings:
             COLLECTION_NAME=os.getenv("COLLECTION_NAME", cls.COLLECTION_NAME),
             ZILLIZ_URI=os.getenv("ZILLIZ_URI", cls.ZILLIZ_URI),
             ZILLIZ_TOKEN=os.getenv("ZILLIZ_TOKEN", cls.ZILLIZ_TOKEN),
+            SUPABASE_URL=os.getenv("SUPABASE_URL", cls.SUPABASE_URL),
+            SUPABASE_ANON_KEY=os.getenv("SUPABASE_ANON_KEY", cls.SUPABASE_ANON_KEY),
         )
 
 
