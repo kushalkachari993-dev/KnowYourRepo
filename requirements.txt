@@ -9,3 +9,6 @@ gdown
 pymilvus
 python-dotenv
 sentence-transformers
+fastapi
+uvicorn[standard]
+python-multipart

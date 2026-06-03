@@ -4,6 +4,7 @@ import logging
 import uuid
 import tempfile
 import hashlib
+import time
 
 from app.ingestion.loader import get_loader
 from app.ingestion.chunker import get_chunker
@@ -57,6 +58,8 @@ class IngestionPipeline:
         extra_metadata: Optional[Dict[str, Any]] = None,
         user_id: str = None,
         source_id: str = None,
+        session_id: str = None,
+        ttl_seconds: int = None,
     ) -> int:
         """
         Ingest a single document file.
@@ -83,6 +86,11 @@ class IngestionPipeline:
         if source_id:
             document["metadata"]["source_id"] = source_id
         document["metadata"].setdefault("source_id", self._source_id(document["metadata"], file_path))
+        now = int(time.time())
+        ttl = ttl_seconds if ttl_seconds is not None else settings.SESSION_TTL_SECONDS
+        document["metadata"].setdefault("session_id", session_id or user_id or document["metadata"]["source_id"])
+        document["metadata"].setdefault("created_at", now)
+        document["metadata"].setdefault("expires_at", now + int(ttl))
         
         # 2. Chunk document
         chunks = self.chunker.chunk_document(document)
@@ -111,7 +119,14 @@ class IngestionPipeline:
         
         return len(chunks)
 
-    def ingest_directory(self, directory_path: str, user_id: str = None, source_id: str = None) -> Dict[str, int]:
+    def ingest_directory(
+        self,
+        directory_path: str,
+        user_id: str = None,
+        source_id: str = None,
+        session_id: str = None,
+        ttl_seconds: int = None,
+    ) -> Dict[str, int]:
         """
         Ingest all supported documents from a directory.
         
@@ -150,6 +165,8 @@ class IngestionPipeline:
                     },
                     user_id=user_id,
                     source_id=source_id or f"local_directory:{dir_path.resolve()}",
+                    session_id=session_id,
+                    ttl_seconds=ttl_seconds,
                 )
                 results[file_path.name] = num_chunks
                 total_chunks += num_chunks
@@ -161,7 +178,14 @@ class IngestionPipeline:
         
         return results
 
-    def ingest_documents(self, documents: Dict[str, Dict[str, Any]], user_id: str = None, source_id: str = None) -> int:
+    def ingest_documents(
+        self,
+        documents: Dict[str, Dict[str, Any]],
+        user_id: str = None,
+        source_id: str = None,
+        session_id: str = None,
+        ttl_seconds: int = None,
+    ) -> int:
         """
         Ingest pre-loaded documents (from DocumentLoader.load_directory()).
         
@@ -182,6 +206,11 @@ class IngestionPipeline:
                     doc_data.setdefault("metadata", {})["user_id"] = user_id
                 if source_id:
                     doc_data.setdefault("metadata", {})["source_id"] = source_id
+                now = int(time.time())
+                ttl = ttl_seconds if ttl_seconds is not None else settings.SESSION_TTL_SECONDS
+                doc_data.setdefault("metadata", {})["session_id"] = session_id or user_id or source_id or filename
+                doc_data.setdefault("metadata", {})["created_at"] = now
+                doc_data.setdefault("metadata", {})["expires_at"] = now + int(ttl)
                 chunks = self.chunker.chunk_document(doc_data)
                 
                 if not chunks:
@@ -213,7 +242,14 @@ class IngestionPipeline:
         
         return total_chunks
 
-    def ingest_source_url(self, source_url: str, user_id: str = None, source_id: str = None) -> Dict[str, int]:
+    def ingest_source_url(
+        self,
+        source_url: str,
+        user_id: str = None,
+        source_id: str = None,
+        session_id: str = None,
+        ttl_seconds: int = None,
+    ) -> Dict[str, int]:
         """
         Ingest supported documents from a public source URL.
 
@@ -238,6 +274,8 @@ class IngestionPipeline:
                         extra_metadata=source_document.metadata,
                         user_id=user_id,
                         source_id=source_id,
+                        session_id=session_id,
+                        ttl_seconds=ttl_seconds,
                     )
                     display_name = source_document.metadata.get("source_path", source_document.path.name)
                     results[display_name] = num_chunks
@@ -297,6 +335,12 @@ class IngestionPipeline:
         logger.warning("Resetting vector database - all data will be deleted!")
         self.vector_store.delete_all()
         logger.info("✓ Database reset complete")
+
+    def cleanup_expired(self, now: int = None) -> None:
+        """Delete chunks whose temporary session has expired."""
+        cutoff = int(now if now is not None else time.time())
+        self.vector_store.delete_where({"expires_at": {"$lt": cutoff}})
+        logger.info("Deleted expired chunks with expires_at < %s", cutoff)
 
 
 # ============================================================

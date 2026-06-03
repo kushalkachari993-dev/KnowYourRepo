@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 import logging
+import time
 
 from app.ingestion.embedder import get_embedder
 from app.vectordb.factory import get_vector_store
@@ -76,9 +77,7 @@ class DocumentSearcher:
             logger.error(f"Failed to generate query embedding: {e}")
             raise RuntimeError(f"Query embedding failed: {e}")
         
-        filters = filter_metadata.copy() if filter_metadata else {}
-        if user_id:
-            filters["user_id"] = user_id
+        filters = self._active_filter(filter_metadata, user_id)
 
         # 2. Search vector database
         try:
@@ -97,6 +96,18 @@ class DocumentSearcher:
         logger.info(f"✓ Found {len(results)} results")
         
         return results
+
+    def _active_filter(self, filter_metadata: Optional[Dict[str, Any]], user_id: str = None) -> Dict[str, Any]:
+        clauses = []
+        if filter_metadata:
+            clauses.append(filter_metadata.copy())
+        if user_id:
+            clauses.append({"user_id": user_id})
+        clauses.append({"expires_at": {"$gt": int(time.time())}})
+
+        if len(clauses) == 1:
+            return clauses[0]
+        return {"$and": clauses}
 
     def _format_results(self, raw_results: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -159,7 +170,7 @@ class DocumentSearcher:
         """
         threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
         
-        results = self.search(query, top_k, user_id=user_id)
+        results = self.search(query, top_k=top_k, user_id=user_id)
         
         # Filter by threshold
         filtered_results = [

@@ -53,6 +53,9 @@ class Settings:
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
     ANONYMOUS_REPO_LIMIT_MB: int = 100
+    SESSION_TTL_SECONDS: int = 3600
+    CLEANUP_INTERVAL_SECONDS: int = 300
+    CLEANUP_SECRET: str = ""
     
     # ============================================================
     # Document Processing
@@ -102,6 +105,9 @@ class Settings:
             VECTOR_DB_BACKEND=chroma
             SUPABASE_URL=https://your-project.supabase.co
             ANONYMOUS_REPO_LIMIT_MB=100
+            SESSION_TTL_SECONDS=3600
+            CLEANUP_INTERVAL_SECONDS=300
+            CLEANUP_SECRET=change-me-for-deployed-cleanup
             CHUNK_SIZE=1000
             DEFAULT_TOP_K=10
         """
@@ -124,6 +130,9 @@ class Settings:
             SUPABASE_URL=os.getenv("SUPABASE_URL", cls.SUPABASE_URL),
             SUPABASE_ANON_KEY=os.getenv("SUPABASE_ANON_KEY", cls.SUPABASE_ANON_KEY),
             ANONYMOUS_REPO_LIMIT_MB=int(os.getenv("ANONYMOUS_REPO_LIMIT_MB", cls.ANONYMOUS_REPO_LIMIT_MB)),
+            SESSION_TTL_SECONDS=int(os.getenv("SESSION_TTL_SECONDS", cls.SESSION_TTL_SECONDS)),
+            CLEANUP_INTERVAL_SECONDS=int(os.getenv("CLEANUP_INTERVAL_SECONDS", cls.CLEANUP_INTERVAL_SECONDS)),
+            CLEANUP_SECRET=os.getenv("CLEANUP_SECRET", cls.CLEANUP_SECRET),
         )
 
 

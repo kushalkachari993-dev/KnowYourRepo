@@ -56,13 +56,25 @@ def inject_styles() -> None:
         }
 
         section[data-testid="stSidebar"] {
-            background: #ffffff;
-            border-right: 1px solid var(--line);
-            opacity: 1;
+            display: none !important;
         }
 
-        h1, h2, h3, p {
+        header[data-testid="stHeader"] {
+            background: transparent;
+        }
+
+        .stDeployButton {
+            display: none;
+        }
+
+        h1, h2, h3, p, label,
+        div[data-testid="stWidgetLabel"],
+        div[data-testid="stWidgetLabel"] p,
+        div[data-testid="stRadio"] label,
+        div[data-testid="stRadio"] label span,
+        div[data-testid="stMarkdownContainer"] {
             letter-spacing: 0;
+            color: var(--ink);
         }
 
         div[data-testid="stButton"] > button,
@@ -129,6 +141,18 @@ def inject_styles() -> None:
             border: 1.5px dashed #d8ddec;
             background: #fbfcff;
             min-height: 108px;
+        }
+
+        div[data-testid="stFileUploader"] section * {
+            color: #111827 !important;
+        }
+
+        div[data-testid="stFileUploader"] small {
+            color: #667085 !important;
+        }
+
+        div[data-testid="stAlert"] {
+            color: #111827;
         }
 
         div[data-testid="stExpander"] {
@@ -237,6 +261,27 @@ def inject_styles() -> None:
             border-radius: 18px;
             padding: 22px;
             box-shadow: 0 20px 50px rgba(16, 24, 40, 0.08);
+        }
+
+        .account-shell {
+            background: #ffffff;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 20px;
+            box-shadow: 0 18px 44px rgba(16, 24, 40, 0.06);
+            margin-bottom: 18px;
+        }
+
+        .account-shell h3 {
+            margin: 0 0 6px 0;
+            font-size: 1.12rem;
+            color: #111827;
+        }
+
+        .account-shell p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.45;
         }
 
         .auth-card-title {
@@ -445,6 +490,10 @@ def initialize_state() -> None:
         st.session_state.auth_session = None
     if "anon_user_id" not in st.session_state:
         st.session_state.anon_user_id = f"anon:{uuid4().hex}"
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = f"session:{uuid4().hex}"
+    if "last_cleanup_at" not in st.session_state:
+        st.session_state.last_cleanup_at = 0
 
 
 def current_user() -> dict:
@@ -458,12 +507,30 @@ def current_user_id() -> str:
     return current_user().get("id", "") or st.session_state.get("anon_user_id", "")
 
 
+def current_session_id() -> str:
+    return st.session_state.get("session_id", current_user_id())
+
+
 def is_signed_in() -> bool:
     return bool(st.session_state.get("auth_session"))
 
 
 def anonymous_repo_limit_mb() -> int:
     return int(getattr(settings, "ANONYMOUS_REPO_LIMIT_MB", 100))
+
+
+def cleanup_expired_vectors_if_due() -> None:
+    now = int(time.time())
+    interval = int(getattr(settings, "CLEANUP_INTERVAL_SECONDS", 300))
+    if now - int(st.session_state.get("last_cleanup_at", 0)) < interval:
+        return
+
+    try:
+        st.session_state.pipeline.cleanup_expired(now=now)
+        st.session_state.last_cleanup_at = now
+    except Exception as exc:
+        st.session_state.last_cleanup_at = now
+        st.toast(f"Expired vector cleanup skipped: {exc}", icon="!")
 
 
 def render_auth_form(location: str = "main") -> None:
@@ -475,7 +542,6 @@ def render_auth_form(location: str = "main") -> None:
         "Account",
         ["Sign in", "Sign up"],
         horizontal=True,
-        label_visibility="collapsed",
         key=f"{location}_auth_mode",
     )
     email = st.text_input("Email", key=f"{location}_auth_email")
@@ -527,6 +593,7 @@ def ingest_uploaded_files(uploaded_files) -> None:
                     },
                     user_id=user_id,
                     source_id=source_id,
+                    session_id=current_session_id(),
                 )
                 total_chunks += num_chunks
                 st.success(f"{uploaded_file.name}: {num_chunks} chunks")
@@ -593,67 +660,99 @@ def render_results(aggregated_results) -> None:
                 )
 
 
-def render_sidebar() -> None:
-    with st.sidebar:
-        st.header("Controls")
-        user = current_user()
-        if user:
-            st.caption(f"Signed in as {user.get('email', user.get('id', 'user'))}")
-            if st.button("Sign out", use_container_width=True):
-                try:
-                    auth_client = get_auth_client()
-                    auth_client.sign_out(st.session_state.auth_session.access_token)
-                except Exception:
-                    pass
-                st.session_state.auth_session = None
-                st.session_state.last_chunks = []
-                st.session_state.last_documents = []
-                st.rerun()
-        else:
-            st.caption("Anonymous session")
-            st.caption(f"Repos up to {anonymous_repo_limit_mb()} MB can be indexed without sign-in.")
+def sign_out() -> None:
+    try:
+        auth_client = get_auth_client()
+        auth_client.sign_out(st.session_state.auth_session.access_token)
+    except Exception:
+        pass
+    st.session_state.auth_session = None
+    st.session_state.anon_user_id = f"anon:{uuid4().hex}"
+    st.session_state.session_id = f"session:{uuid4().hex}"
+    st.session_state.last_chunks = []
+    st.session_state.last_documents = []
+    st.rerun()
 
+
+def render_account_panel() -> None:
+    if is_signed_in():
+        user_label = current_user().get("email", current_user_id())
+        st.html(
+            dedent(
+                f"""
+                <div class="account-shell">
+                    <div class="section-kicker">Account</div>
+                    <h3>Signed in</h3>
+                    <p>{html.escape(user_label)}<br>Large repositories are enabled for this workspace.</p>
+                </div>
+                """
+            )
+        )
+        if st.button("Sign out", use_container_width=True):
+            sign_out()
+        return
+
+    st.html(
+        dedent(
+            f"""
+            <div class="account-shell">
+                <div class="section-kicker">Account</div>
+                <h3>Sign in for larger repos</h3>
+                <p>Anonymous GitHub repositories up to {anonymous_repo_limit_mb()} MB can be indexed without sign-in.</p>
+            </div>
+            """
+        )
+    )
+    render_auth_form("main")
+
+
+def render_admin_panel() -> None:
+    with st.expander("Admin and demo controls"):
         status = st.session_state.pipeline.get_status()
-        st.metric("Indexed chunks", status["total_chunks"])
-        st.caption(f"Vector DB: {settings.VECTOR_DB_BACKEND}")
+        st.caption(
+            f"Current workspace: {status['total_chunks']} indexed chunks - "
+            f"{settings.VECTOR_DB_BACKEND} / {settings.COLLECTION_NAME}"
+        )
 
-        st.divider()
+        demo_col, reset_col = st.columns(2, gap="large")
+        with demo_col:
+            st.markdown("#### Local demo data")
+            st.caption("Indexes files already present in data/raw for the current user/session.")
+            if st.button("Index data/raw", use_container_width=True):
+                with st.spinner("Indexing local demo directory..."):
+                    try:
+                        user_id = current_user_id()
+                        source_id = f"local_demo:{user_id}"
+                        results = st.session_state.pipeline.ingest_directory(
+                            str(settings.RAW_DATA_DIR),
+                            user_id=user_id,
+                            source_id=source_id,
+                            session_id=current_session_id(),
+                        )
+                        st.success(f"Indexed {len(results)} files.")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
 
-        st.subheader("Local demo data")
-        if st.button("Index data/raw", use_container_width=True):
-            with st.spinner("Indexing local demo directory..."):
-                try:
-                    user_id = current_user_id()
-                    source_id = f"local_demo:{user_id}"
-                    results = st.session_state.pipeline.ingest_directory(
-                        str(settings.RAW_DATA_DIR),
-                        user_id=user_id,
-                        source_id=source_id,
-                    )
-                    st.success(f"Indexed {len(results)} files.")
+        with reset_col:
+            st.markdown("#### Danger zone")
+            st.caption("Clears the configured vector index. Use this only for demo resets.")
+            if st.button("Clear vector index", use_container_width=True):
+                if st.session_state.get("confirm_reset", False):
+                    st.session_state.pipeline.reset_database()
+                    st.session_state.confirm_reset = False
+                    st.session_state.pipeline = get_pipeline()
+                    st.session_state.searcher = get_searcher()
+                    st.session_state.aggregator = get_aggregator()
+                    st.session_state.last_chunks = []
+                    st.session_state.last_documents = []
+                    st.success("Vector index cleared.")
                     time.sleep(1)
                     st.rerun()
-                except Exception as exc:
-                    st.error(str(exc))
-
-        st.divider()
-
-        st.subheader("Danger zone")
-        if st.button("Clear vector index", use_container_width=True):
-            if st.session_state.get("confirm_reset", False):
-                st.session_state.pipeline.reset_database()
-                st.session_state.confirm_reset = False
-                st.session_state.pipeline = get_pipeline()
-                st.session_state.searcher = get_searcher()
-                st.session_state.aggregator = get_aggregator()
-                st.session_state.last_chunks = []
-                st.session_state.last_documents = []
-                st.success("Vector index cleared.")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.session_state.confirm_reset = True
-                st.warning("Click again to confirm deletion.")
+                else:
+                    st.session_state.confirm_reset = True
+                    st.warning("Click again to confirm deletion.")
 
 
 def render_hero(status_count: int) -> None:
@@ -706,19 +805,17 @@ def render_hero(status_count: int) -> None:
 
 inject_styles()
 initialize_state()
-render_sidebar()
+cleanup_expired_vectors_if_due()
 
 status = st.session_state.pipeline.get_status()
 render_hero(status["total_chunks"])
 
-if is_signed_in():
-    st.success(f"Signed in as {current_user().get('email', current_user_id())}")
-else:
+if not is_signed_in():
     st.html(
         dedent(
             f"""
             <div class="main-notice">
-                Anonymous mode is active. GitHub repositories up to {anonymous_repo_limit_mb()} MB can be indexed without sign-in.
+                Anonymous mode: public GitHub repositories up to {anonymous_repo_limit_mb()} MB can be indexed without sign-in. Sign in for larger repositories.
             </div>
             """
         )
@@ -741,7 +838,7 @@ st.html(
     ),
 )
 
-source_col, upload_col = st.columns([1, 1], gap="large")
+source_col, upload_col, account_col = st.columns([1.1, 1.1, 0.9], gap="large")
 
 with source_col:
     st.markdown("#### Source link")
@@ -772,7 +869,11 @@ with source_col:
                         )
                     else:
                         user_id = current_user_id()
-                        results = st.session_state.pipeline.ingest_source_url(clean_source_url, user_id=user_id)
+                        results = st.session_state.pipeline.ingest_source_url(
+                            clean_source_url,
+                            user_id=user_id,
+                            session_id=current_session_id(),
+                        )
                         if results:
                             st.success(f"Indexed {len(results)} files.")
                             for filename, count in results.items():
@@ -799,23 +900,8 @@ with upload_col:
         else:
             st.warning("Upload at least one file first.")
 
-if not is_signed_in():
-    st.html(
-        dedent(
-            """
-            <div class="panel">
-                <div class="panel-title">
-                    <div>
-                        <div class="section-kicker">Account</div>
-                        <h2>Sign in for larger repositories</h2>
-                        <p>Anonymous sessions are fine for small repos. Sign in when the repository is over the free anonymous limit.</p>
-                    </div>
-                </div>
-            </div>
-            """
-        )
-    )
-    render_auth_form("main")
+with account_col:
+    render_account_panel()
 
 st.html(
     dedent(
@@ -853,6 +939,8 @@ st.html(
         """
     )
 )
+
+render_admin_panel()
 
 st.html(
     dedent(

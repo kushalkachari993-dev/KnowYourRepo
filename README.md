@@ -1,13 +1,19 @@
+---
+title: KnowYourRepo
+sdk: docker
+app_port: 7860
+---
+
 Document Search System
 ======================
 
-Demo app for indexing document sources, searching them semantically, opening the original source file, and chatting with the retrieved document context.
+React + FastAPI demo app for indexing document sources, searching them semantically, opening the original source file, and chatting with the retrieved document context.
 
 Supported demo sources:
 
 - Public GitHub repository URLs, such as `https://github.com/owner/repo`
 - Public Google Drive file and folder links
-- Manual uploads through the Streamlit sidebar
+- Manual uploads through the web UI
 - Local demo files in `data/raw`
 
 Current Google Drive note: public folder ingestion uses `gdown`, which is good for demos. Private folders or per-user permissions should use the Google Drive API with OAuth.
@@ -61,8 +67,24 @@ GROQ_API_KEY=your-groq-api-key
 Start the app:
 
 ```powershell
-streamlit run app/ui/main.py
+uvicorn app.api.main:app --reload --host 127.0.0.1 --port 8010
 ```
+
+Run the React frontend during local development:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Build React for FastAPI to serve:
+
+```powershell
+cd frontend
+npm run build
+```
+
 
 Verify Vector Storage
 ---------------------

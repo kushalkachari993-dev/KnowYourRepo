@@ -123,6 +123,16 @@ class ZillizClient:
             auto_id=False,
             max_length=512,
         )
+        self._load_collection()
+
+    def delete_where(self, where: Dict[str, Any]) -> None:
+        filter_expression = self._where_to_filter(where)
+        if not filter_expression:
+            raise ValueError("delete_where requires a metadata filter")
+
+        self.client.delete(collection_name=self.collection_name, filter=filter_expression)
+        self._flush_collection()
+        self._load_collection()
 
     def get_collection_info(self) -> Dict[str, Any]:
         count = 0
@@ -159,8 +169,14 @@ class ZillizClient:
         if not where:
             return ""
 
+        if "$and" in where:
+            parts = [self._where_to_filter(part) for part in where["$and"]]
+            return " and ".join(part for part in parts if part)
+
         filters = []
         for key, value in where.items():
+            if key.startswith("$"):
+                continue
             if isinstance(value, str):
                 escaped = value.replace("\\", "\\\\").replace('"', '\\"')
                 filters.append(f'{key} == "{escaped}"')
@@ -168,6 +184,16 @@ class ZillizClient:
                 filters.append(f"{key} == {str(value).lower()}")
             elif isinstance(value, (int, float)):
                 filters.append(f"{key} == {value}")
+            elif isinstance(value, dict):
+                for operator, operand in value.items():
+                    if operator == "$gt":
+                        filters.append(f"{key} > {operand}")
+                    elif operator == "$gte":
+                        filters.append(f"{key} >= {operand}")
+                    elif operator == "$lt":
+                        filters.append(f"{key} < {operand}")
+                    elif operator == "$lte":
+                        filters.append(f"{key} <= {operand}")
 
         return " and ".join(filters)
 

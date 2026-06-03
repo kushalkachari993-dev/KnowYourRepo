@@ -134,6 +134,13 @@ class ChromaClient:
             },
         )
 
+    def delete_where(self, where: Dict[str, Any]) -> None:
+        """Delete documents matching a metadata filter."""
+        if not where:
+            raise ValueError("delete_where requires a metadata filter")
+
+        self.collection.delete(where=where)
+
     def get_collection_info(self) -> Dict[str, Any]:
         """Return basic collection metadata."""
         return {
