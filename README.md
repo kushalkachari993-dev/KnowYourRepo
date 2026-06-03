@@ -85,6 +85,26 @@ cd frontend
 npm run build
 ```
 
+Scheduled Vector Cleanup
+------------------------
+
+Expired vectors are ignored during search, and the deployed cleanup endpoint physically deletes expired rows:
+
+```text
+POST /api/cleanup-expired-vectors
+```
+
+GitHub Actions calls the Hugging Face Space cleanup endpoint every 15 minutes from:
+
+```text
+.github/workflows/cleanup-expired-vectors.yml
+```
+
+For protected cleanup, set the same secret in both places:
+
+- Hugging Face Space secret: `CLEANUP_SECRET`
+- GitHub repository secret: `CLEANUP_SECRET`
+
 
 Verify Vector Storage
 ---------------------

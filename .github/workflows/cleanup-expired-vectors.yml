@@ -1,0 +1,24 @@
+name: Cleanup expired vectors
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call cleanup endpoint
+        env:
+          CLEANUP_ENDPOINT: https://kushalkachari-knowyourrepo.hf.space/api/cleanup-expired-vectors
+          CLEANUP_SECRET: ${{ secrets.CLEANUP_SECRET }}
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --header "X-Cleanup-Secret: ${CLEANUP_SECRET}" \
+            --data "{}" \
+            "${CLEANUP_ENDPOINT}"
