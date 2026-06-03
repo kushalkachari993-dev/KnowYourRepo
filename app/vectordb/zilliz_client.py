@@ -171,7 +171,11 @@ class ZillizClient:
 
         if "$and" in where:
             parts = [self._where_to_filter(part) for part in where["$and"]]
-            return " and ".join(part for part in parts if part)
+            return " and ".join(f"({part})" for part in parts if part)
+
+        if "$or" in where:
+            parts = [self._where_to_filter(part) for part in where["$or"]]
+            return " or ".join(f"({part})" for part in parts if part)
 
         filters = []
         for key, value in where.items():

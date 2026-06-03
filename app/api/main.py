@@ -420,6 +420,7 @@ def search_documents(
         payload.query,
         top_k=max(payload.top_k * 3, payload.top_k),
         user_id=ident["user_id"],
+        session_id=ident["session_id"],
     )
     filtered = [result for result in raw_results if result["similarity"] >= payload.similarity_threshold]
     docs = aggregator().aggregate_by_document(filtered, max_chunks_per_doc=3)

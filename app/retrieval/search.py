@@ -46,6 +46,7 @@ class DocumentSearcher:
         top_k: int = None,
         filter_metadata: Optional[Dict[str, Any]] = None,
         user_id: str = None,
+        session_id: str = None,
     ) -> List[Dict[str, Any]]:
         """
         Search for documents similar to the query.
@@ -77,7 +78,7 @@ class DocumentSearcher:
             logger.error(f"Failed to generate query embedding: {e}")
             raise RuntimeError(f"Query embedding failed: {e}")
         
-        filters = self._active_filter(filter_metadata, user_id)
+        filters = self._active_filter(filter_metadata, user_id, session_id, include_expiry=True)
 
         # 2. Search vector database
         try:
@@ -92,22 +93,64 @@ class DocumentSearcher:
         
         # 3. Format results
         results = self._format_results(raw_results)
+
+        if not results and (user_id or session_id):
+            try:
+                legacy_filters = self._active_filter(filter_metadata, user_id, session_id, include_expiry=False)
+                raw_results = self.vector_store.similarity_search(
+                    query_embedding=query_embedding,
+                    top_k=max(top_k * 2, top_k),
+                    where=legacy_filters or None,
+                )
+                results = [
+                    result
+                    for result in self._format_results(raw_results)
+                    if self._is_active_or_legacy(result.get("metadata", {}))
+                ]
+            except Exception as e:
+                logger.warning("Legacy-compatible search fallback failed: %s", e)
         
         logger.info(f"✓ Found {len(results)} results")
         
         return results
 
-    def _active_filter(self, filter_metadata: Optional[Dict[str, Any]], user_id: str = None) -> Dict[str, Any]:
+    def _active_filter(
+        self,
+        filter_metadata: Optional[Dict[str, Any]],
+        user_id: str = None,
+        session_id: str = None,
+        include_expiry: bool = True,
+    ) -> Dict[str, Any]:
         clauses = []
         if filter_metadata:
             clauses.append(filter_metadata.copy())
+
+        owner_clauses = []
         if user_id:
-            clauses.append({"user_id": user_id})
-        clauses.append({"expires_at": {"$gt": int(time.time())}})
+            owner_clauses.append({"user_id": user_id})
+        if session_id:
+            owner_clauses.append({"session_id": session_id})
+
+        if len(owner_clauses) == 1:
+            clauses.append(owner_clauses[0])
+        elif len(owner_clauses) > 1:
+            clauses.append({"$or": owner_clauses})
+
+        if include_expiry:
+            clauses.append({"expires_at": {"$gt": int(time.time())}})
 
         if len(clauses) == 1:
             return clauses[0]
         return {"$and": clauses}
+
+    def _is_active_or_legacy(self, metadata: Dict[str, Any]) -> bool:
+        expires_at = metadata.get("expires_at")
+        if expires_at is None:
+            return True
+        try:
+            return int(expires_at) > int(time.time())
+        except Exception:
+            return True
 
     def _format_results(self, raw_results: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
