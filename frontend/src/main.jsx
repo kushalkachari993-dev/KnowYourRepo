@@ -209,8 +209,11 @@ function App() {
     <main className="page">
       <header className="nav">
         <div className="brand">
-          <div className="brandMark">KR</div>
-          <span>KnowYourRepo</span>
+          <div className="brandMark">K</div>
+          <div>
+            <span>KnowYourRepo</span>
+            <small>Retrieval workspace</small>
+          </div>
         </div>
         <div className="navPills">
           <span>{signedIn ? user.email || "Signed in" : "Anonymous session"}</span>
@@ -219,17 +222,23 @@ function App() {
         </div>
       </header>
 
-      <section className="hero">
-        <div>
-          <div className="eyebrow"><span /> Temporary AI workspace</div>
-          <h1>
-            Know your repo.
-            <strong>Ask every file.</strong>
-          </h1>
-          <p>
-            Paste a public GitHub or Drive link, upload files, and ask questions grounded only in retrieved source context.
-          </p>
+      <section className="workspaceHeader">
+        <div className="titleBlock">
+          <span className="eyebrow"><span /> Session workspace</span>
+          <h1>Repository Intelligence</h1>
+          <p>Index a source, search its chunks, and ask grounded follow-up questions.</p>
         </div>
+        <section className="metrics">
+          {metrics.map(([label, value]) => (
+            <div className="metric" key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </section>
+      </section>
+
+      <section className="topGrid">
         <AccountCard
           signedIn={signedIn}
           user={user}
@@ -243,32 +252,30 @@ function App() {
           onSignOut={handleSignOut}
           config={config}
         />
+        {!signedIn && (
+          <section className="sessionNotice">
+            <div>
+              <span className="kicker">Anonymous Workspace</span>
+              <p>
+                Search scope: <strong>{shortSessionId(sessionId)}</strong>
+              </p>
+            </div>
+            <button type="button" className="secondary" onClick={handleNewSession}>
+              New session
+            </button>
+          </section>
+        )}
       </section>
 
       {message && <div className={message.toLowerCase().includes("error") ? "notice danger" : "notice"}>{message}</div>}
       {busy && <div className="busy">{busy}...</div>}
       {activeJob && <JobCard job={activeJob} />}
 
-      {!signedIn && (
-        <section className="sessionNotice">
-          <div>
-            <span className="kicker">Anonymous Workspace</span>
-            <p>
-              Searching only sees vectors indexed by this browser workspace:
-              <strong> {shortSessionId(sessionId)}</strong>.
-            </p>
-          </div>
-          <button type="button" className="secondary" onClick={handleNewSession}>
-            Start fresh session
-          </button>
-        </section>
-      )}
-
       <section className="workspace">
         <div className="sectionHead">
           <div>
-            <span className="kicker">Index Workspace</span>
-            <h2>Add documents to your assistant</h2>
+            <span className="kicker">Sources</span>
+            <h2>Build the temporary index</h2>
             <p>Anonymous GitHub repositories up to {config?.anonymous_repo_limit_mb ?? 100} MB do not require sign-in.</p>
           </div>
         </div>
@@ -281,7 +288,7 @@ function App() {
               id="source-url"
               value={sourceUrl}
               onChange={(event) => setSourceUrl(event.target.value)}
-              placeholder="https://github.com/owner/repo"
+              placeholder="https://github.com/owner/repo or Drive folder link"
             />
             <button type="submit">Index source link</button>
           </form>
@@ -301,64 +308,62 @@ function App() {
         </div>
       </section>
 
-      <section className="metrics">
-        {metrics.map(([label, value]) => (
-          <div className="metric" key={label}>
-            <strong>{value}</strong>
-            <span>{label}</span>
-          </div>
-        ))}
+      <section className="queryGrid">
+        <section className="panel searchPanel">
+          <span className="kicker">Search</span>
+          <h2>Find relevant files</h2>
+          <form onSubmit={handleSearch} className="searchForm">
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Ask about a feature, class, topic, policy, or concept..."
+            />
+            <div className="controls">
+              <label>
+                Results
+                <input type="range" min="1" max="20" value={topK} onChange={(event) => setTopK(Number(event.target.value))} />
+                <span>{topK}</span>
+              </label>
+              <label>
+                Similarity
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={threshold}
+                  onChange={(event) => setThreshold(Number(event.target.value))}
+                />
+                <span>{threshold.toFixed(2)}</span>
+              </label>
+            </div>
+            <button type="submit">Search documents</button>
+          </form>
+        </section>
+
+        <section className="panel chatPanel">
+          <span className="kicker">Chat</span>
+          <h2>Ask retrieved context</h2>
+          <form onSubmit={handleChat} className="chatForm">
+            <input
+              value={chatQuestion}
+              onChange={(event) => setChatQuestion(event.target.value)}
+              placeholder="What should I know from the returned documents?"
+            />
+            <button type="submit" className="dark">Ask context</button>
+          </form>
+          {answer && <div className="answer">{answer}</div>}
+        </section>
       </section>
 
-      <section className="panel searchPanel">
-        <span className="kicker">Semantic Search</span>
-        <h2>Find the most relevant files</h2>
-        <p>Search indexed chunks, open the source, then ask follow-up questions.</p>
-        <form onSubmit={handleSearch} className="searchForm">
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Ask about a feature, class, topic, policy, or concept..."
-          />
-          <div className="controls">
-            <label>
-              Results
-              <input type="range" min="1" max="20" value={topK} onChange={(event) => setTopK(Number(event.target.value))} />
-              <span>{topK}</span>
-            </label>
-            <label>
-              Min similarity
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={threshold}
-                onChange={(event) => setThreshold(Number(event.target.value))}
-              />
-              <span>{threshold.toFixed(2)}</span>
-            </label>
-          </div>
-          <button type="submit">Search documents</button>
-        </form>
-      </section>
-
+      <div className="resultsHead">
+        <div>
+          <span className="kicker">Results</span>
+          <h2>Retrieved files</h2>
+        </div>
+        <span>{documents.length} documents</span>
+      </div>
       <Results documents={documents} />
-
-      <section className="panel">
-        <span className="kicker">Document Chat</span>
-        <h2>Ask the retrieved context</h2>
-        <p>The answer is grounded in files returned by your most recent search.</p>
-        <form onSubmit={handleChat} className="chatForm">
-          <input
-            value={chatQuestion}
-            onChange={(event) => setChatQuestion(event.target.value)}
-            placeholder="What should I know from the returned documents?"
-          />
-          <button type="submit" className="dark">Ask retrieved context</button>
-        </form>
-        {answer && <div className="answer">{answer}</div>}
-      </section>
 
       <footer>
         {config &&
@@ -385,9 +390,13 @@ function AccountCard({
     return (
       <aside className="accountCard">
         <span className="kicker">Account</span>
-        <h2>Signed in</h2>
-        <p>{user.email || user.id}</p>
-        <button type="button" className="secondary" onClick={onSignOut}>Sign out</button>
+        <div className="accountSignedIn">
+          <div>
+            <h2>Signed in</h2>
+            <p>{user.email || user.id}</p>
+          </div>
+          <button type="button" className="secondary" onClick={onSignOut}>Sign out</button>
+        </div>
       </aside>
     );
   }

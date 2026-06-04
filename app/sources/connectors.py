@@ -151,21 +151,37 @@ class SourceConnector:
         output_dir = workspace_dir / f"google_drive_{folder_id}"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        downloaded_paths = gdown.download_folder(
-            url=source_url,
-            output=str(output_dir),
-            quiet=True,
-            use_cookies=False,
-        )
+        download_error = None
+        try:
+            downloaded_paths = gdown.download_folder(
+                url=source_url,
+                output=str(output_dir),
+                quiet=True,
+                use_cookies=False,
+            )
+        except Exception as exc:
+            download_error = exc
+            logger.warning("Google Drive folder download was partial or blocked: %s", exc)
+            downloaded_paths = [str(path) for path in output_dir.rglob("*") if path.is_file()]
 
         if downloaded_paths is None:
-            raise RuntimeError("Could not download the Google Drive folder. Confirm it is public and accessible.")
+            downloaded_paths = []
 
         supported_files = [
             Path(path)
             for path in downloaded_paths
             if Path(path).is_file() and Path(path).suffix.lower() in settings.SUPPORTED_FILE_TYPES
         ]
+
+        if not supported_files:
+            detail = (
+                "Could not download any supported files from this Google Drive folder. "
+                "Make sure every file is shared as 'Anyone with the link', not just the folder. "
+                "Google Drive/gdown may also block files after many accesses."
+            )
+            if download_error:
+                detail = f"{detail} Original Drive error: {download_error}"
+            raise RuntimeError(detail)
 
         documents = []
         for path in supported_files:
@@ -183,7 +199,14 @@ class SourceConnector:
                 )
             )
 
-        logger.info("Fetched %s supported documents from Google Drive folder %s", len(documents), folder_id)
+        if download_error:
+            logger.warning(
+                "Fetched %s supported documents from Google Drive folder %s after skipping blocked files",
+                len(documents),
+                folder_id,
+            )
+        else:
+            logger.info("Fetched %s supported documents from Google Drive folder %s", len(documents), folder_id)
         return documents
 
     def _download_file(self, url: str, destination: Path) -> None:
