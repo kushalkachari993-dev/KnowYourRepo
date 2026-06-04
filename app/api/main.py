@@ -117,6 +117,20 @@ def identity(session_id: str, user: Dict[str, Any]) -> Dict[str, str | bool]:
     }
 
 
+def owner_filter(user_id: str = "", session_id: str = "") -> Dict[str, Any]:
+    owner_clauses = []
+    if user_id:
+        owner_clauses.append({"user_id": user_id})
+    if session_id:
+        owner_clauses.append({"session_id": session_id})
+
+    if not owner_clauses:
+        return {}
+    if len(owner_clauses) == 1:
+        return owner_clauses[0]
+    return {"$or": owner_clauses}
+
+
 def public_source_url(doc: Dict[str, Any]) -> str:
     metadata = doc.get("metadata", {})
     return metadata.get("source_url", "")
@@ -260,8 +274,19 @@ def config() -> Dict[str, Any]:
 
 
 @app.get("/api/status")
-def status(user: Dict[str, Any] = Depends(auth_user)) -> Dict[str, Any]:
-    store_status = pipeline().get_status()
+def status(
+    session_id: Optional[str] = Query(default=None),
+    user: Dict[str, Any] = Depends(auth_user),
+) -> Dict[str, Any]:
+    user_id = user.get("id", "") if user else ""
+    if not user_id and session_id:
+        user_id = f"anon:{session_id}"
+
+    filters = owner_filter(user_id=user_id, session_id=session_id or "")
+    store_status = pipeline().get_status(where=filters, active_or_legacy=True) if filters else pipeline().get_status()
+    if not filters:
+        store_status["total_chunks"] = 0
+
     return {
         "total_chunks": store_status["total_chunks"],
         "collection_name": store_status["collection_name"],

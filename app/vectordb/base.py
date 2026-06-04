@@ -29,3 +29,6 @@ class VectorStore(Protocol):
 
     def get_collection_info(self) -> Dict[str, Any]:
         ...
+
+    def count_documents(self, where: Optional[Dict[str, Any]] = None, active_or_legacy: bool = False) -> int:
+        ...

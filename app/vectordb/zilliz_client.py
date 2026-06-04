@@ -134,6 +134,40 @@ class ZillizClient:
         self._flush_collection()
         self._load_collection()
 
+    def count_documents(self, where: Optional[Dict[str, Any]] = None, active_or_legacy: bool = False) -> int:
+        """Return number of rows matching a metadata filter."""
+        if not self.client.has_collection(self.collection_name):
+            return 0
+
+        filter_expression = self._where_to_filter(where)
+        if not filter_expression:
+            stats = self.client.get_collection_stats(self.collection_name)
+            return int(stats.get("row_count", 0))
+
+        rows = self.client.query(
+            collection_name=self.collection_name,
+            filter=filter_expression,
+            output_fields=["id", "expires_at"] if active_or_legacy else ["id"],
+            limit=16384,
+        )
+        if active_or_legacy:
+            import time
+
+            now = int(time.time())
+            count = 0
+            for row in rows:
+                expires_at = row.get("expires_at")
+                if expires_at is None:
+                    count += 1
+                    continue
+                try:
+                    count += int(expires_at) > now
+                except (TypeError, ValueError):
+                    count += 1
+            return count
+
+        return len(rows)
+
     def get_collection_info(self) -> Dict[str, Any]:
         count = 0
         if self.client.has_collection(self.collection_name):

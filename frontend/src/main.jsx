@@ -17,8 +17,12 @@ function formatTtl(seconds) {
   return `${minutes} min`;
 }
 
+function shortSessionId(sessionId) {
+  return sessionId?.replace("session:", "").slice(0, 8) || "unknown";
+}
+
 function App() {
-  const [sessionId] = useState(getSessionId);
+  const [sessionId, setSessionId] = useState(getSessionId);
   const [config, setConfig] = useState(null);
   const [status, setStatus] = useState(null);
   const [user, setUser] = useState(() => {
@@ -48,7 +52,7 @@ function App() {
   }, []);
 
   async function refreshBasics() {
-    const [configData, statusData] = await Promise.all([api.config(), api.status().catch(() => null)]);
+    const [configData, statusData] = await Promise.all([api.config(), api.status(sessionId).catch(() => null)]);
     setConfig(configData);
     setStatus(statusData);
   }
@@ -114,6 +118,18 @@ function App() {
       setChunks([]);
       setAnswer("");
     });
+  }
+
+  function handleNewSession() {
+    const created = `session:${crypto.randomUUID()}`;
+    localStorage.setItem("kyr_session_id", created);
+    setSessionId(created);
+    setDocuments([]);
+    setChunks([]);
+    setAnswer("");
+    setActiveJob(null);
+    api.status(created).then(setStatus).catch(() => null);
+    setMessage("Started a fresh anonymous workspace. Re-index your source before searching.");
   }
 
   async function handleIngestSource(event) {
@@ -198,6 +214,7 @@ function App() {
         </div>
         <div className="navPills">
           <span>{signedIn ? user.email || "Signed in" : "Anonymous session"}</span>
+          <span>Workspace {shortSessionId(sessionId)}</span>
           <span>{config?.session_ttl_seconds ? `${formatTtl(config.session_ttl_seconds)} vector TTL` : "Temporary vectors"}</span>
         </div>
       </header>
@@ -231,6 +248,21 @@ function App() {
       {message && <div className={message.toLowerCase().includes("error") ? "notice danger" : "notice"}>{message}</div>}
       {busy && <div className="busy">{busy}...</div>}
       {activeJob && <JobCard job={activeJob} />}
+
+      {!signedIn && (
+        <section className="sessionNotice">
+          <div>
+            <span className="kicker">Anonymous Workspace</span>
+            <p>
+              Searching only sees vectors indexed by this browser workspace:
+              <strong> {shortSessionId(sessionId)}</strong>.
+            </p>
+          </div>
+          <button type="button" className="secondary" onClick={handleNewSession}>
+            Start fresh session
+          </button>
+        </section>
+      )}
 
       <section className="workspace">
         <div className="sectionHead">

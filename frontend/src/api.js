@@ -28,7 +28,7 @@ async function request(path, options = {}) {
 
 export const api = {
   config: () => request("/api/config"),
-  status: () => request("/api/status"),
+  status: (sessionId) => request(`/api/status?session_id=${encodeURIComponent(sessionId)}`),
   signIn: (email, password) =>
     request("/api/auth/sign-in", {
       method: "POST",

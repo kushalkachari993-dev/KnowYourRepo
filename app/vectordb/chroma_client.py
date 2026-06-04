@@ -123,6 +123,30 @@ class ChromaClient:
         """Return number of stored embeddings."""
         return self.collection.count()
 
+    def count_documents(self, where: Optional[Dict[str, Any]] = None, active_or_legacy: bool = False) -> int:
+        """Return number of stored embeddings matching a metadata filter."""
+        if not where:
+            return self.collection.count()
+
+        result = self.collection.get(where=where, include=["metadatas"] if active_or_legacy else [])
+        if not active_or_legacy:
+            return len(result.get("ids", []))
+
+        import time
+
+        now = int(time.time())
+        count = 0
+        for metadata in result.get("metadatas", []):
+            expires_at = metadata.get("expires_at") if metadata else None
+            if expires_at is None:
+                count += 1
+                continue
+            try:
+                count += int(expires_at) > now
+            except (TypeError, ValueError):
+                count += 1
+        return count
+
     def delete_all(self) -> None:
         """Delete all data in the collection."""
         self.client.delete_collection(self.collection_name)

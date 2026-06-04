@@ -311,7 +311,7 @@ class IngestionPipeline:
         digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
         return f"{prefix}:{digest}"
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self, where: Dict[str, Any] = None, active_or_legacy: bool = False) -> Dict[str, Any]:
         """
         Get current status of the vector database.
         
@@ -319,10 +319,13 @@ class IngestionPipeline:
             Dictionary with collection info and document count
         """
         info = self.vector_store.get_collection_info()
+        count = info["count"]
+        if where:
+            count = self.vector_store.count_documents(where=where, active_or_legacy=active_or_legacy)
         
         return {
             "collection_name": info["name"],
-            "total_chunks": info["count"],
+            "total_chunks": count,
             "metadata": info["metadata"],
         }
 
