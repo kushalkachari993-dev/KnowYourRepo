@@ -1,5 +1,6 @@
 FROM node:20-slim AS frontend-build
 
+ARG FRONTEND_BUILD_BUST=grounded-chat-v1
 WORKDIR /app/frontend
 COPY frontend/package.json ./
 RUN npm install
