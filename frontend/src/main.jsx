@@ -21,6 +21,12 @@ function shortSessionId(sessionId) {
   return sessionId?.replace("session:", "").slice(0, 8) || "unknown";
 }
 
+function groundednessLabel(status) {
+  if (status === "grounded") return "Grounded";
+  if (status === "partially_grounded") return "Partially grounded";
+  return "Insufficient evidence";
+}
+
 function App() {
   const [sessionId, setSessionId] = useState(getSessionId);
   const [config, setConfig] = useState(null);
@@ -191,7 +197,7 @@ function App() {
 
     await runAction("Asking model", async () => {
       const result = await api.chat(chatQuestion.trim(), chunks);
-      setAnswer(result.answer);
+      setAnswer(result);
     });
   }
 
@@ -352,7 +358,7 @@ function App() {
             />
             <button type="submit" className="dark">Ask context</button>
           </form>
-          {answer && <div className="answer">{answer}</div>}
+          {answer && <AnswerPanel answer={answer} />}
         </section>
       </section>
 
@@ -370,6 +376,47 @@ function App() {
           `Embeddings: ${config.embedding_provider} ${config.embedding_model} - Chat: ${config.chat_provider} ${config.chat_model} - Vector DB: ${config.vector_backend}`}
       </footer>
     </main>
+  );
+}
+
+function AnswerPanel({ answer }) {
+  const payload = typeof answer === "string" ? { answer, confidence: "medium", groundedness: { status: "partially_grounded" } } : answer;
+  const status = payload?.groundedness?.status || "insufficient_evidence";
+  const unsupported = payload?.groundedness?.unsupported_claims || [];
+  const citations = payload?.citations || [];
+
+  return (
+    <div className="answer">
+      <div className="answerTop">
+        <span className={`groundedBadge ${status}`}>{groundednessLabel(status)}</span>
+        <span>Confidence: {payload?.confidence || "low"}</span>
+        {payload?.corrected && <span>Self-corrected</span>}
+      </div>
+      <p>{payload?.answer || "No answer returned."}</p>
+
+      {citations.length > 0 && (
+        <div className="citations">
+          <span className="kicker">Evidence</span>
+          {citations.map((citation, index) => (
+            <div className="citation" key={`${citation.filename}-${citation.chunk_index}-${index}`}>
+              <strong>{citation.filename} · chunk {citation.chunk_index}</strong>
+              {citation.quote && <p>{citation.quote}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {unsupported.length > 0 && (
+        <div className="unsupportedClaims">
+          <span className="kicker">Unsupported claims removed</span>
+          <ul>
+            {unsupported.map((claim, index) => (
+              <li key={`${claim}-${index}`}>{claim}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 

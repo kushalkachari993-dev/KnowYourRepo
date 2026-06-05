@@ -465,7 +465,7 @@ def chat_documents(payload: ChatRequest) -> Dict[str, Any]:
 
     chat_client = chat()
     chat_client.healthcheck()
-    return {"answer": chat_client.answer(payload.question, payload.chunks)}
+    return chat_client.grounded_answer(payload.question, payload.chunks)
 
 
 @app.post("/api/cleanup-expired-vectors")

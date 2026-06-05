@@ -1,5 +1,7 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 import logging
+import json
+import re
 
 import requests
 
@@ -12,9 +14,66 @@ class BaseDocumentChat:
     """Common retrieved-context prompt builder."""
 
     def answer(self, question: str, chunks: List[Dict], max_context_chars: int = 4000) -> str:
-        raise NotImplementedError
+        return self.grounded_answer(question, chunks, max_context_chars)["answer"]
+
+    def grounded_answer(self, question: str, chunks: List[Dict], max_context_chars: int = 4000) -> Dict[str, Any]:
+        context = self._build_context(chunks, max_context_chars)
+        if not context:
+            return {
+                "answer": "I could not find enough retrieved context to answer this.",
+                "citations": [],
+                "confidence": "low",
+                "groundedness": {
+                    "status": "insufficient_evidence",
+                    "grounded": False,
+                    "unsupported_claims": ["No retrieved context was available."],
+                    "needs_correction": False,
+                },
+                "corrected": False,
+            }
+
+        answer_prompt = self._build_grounded_answer_prompt(question, context)
+        raw_answer = self._complete(answer_prompt)
+        answer_payload = self._parse_json_object(raw_answer)
+        answer_text = str(answer_payload.get("answer") or raw_answer).strip()
+        citations = self._normalize_citations(answer_payload.get("citations", []))
+        confidence = self._normalize_confidence(answer_payload.get("confidence", "medium"))
+
+        check = self._groundedness_check(question, answer_text, context)
+        corrected = False
+        if check.get("needs_correction"):
+            correction_prompt = self._build_correction_prompt(question, answer_text, context, check)
+            corrected_raw = self._complete(correction_prompt)
+            corrected_payload = self._parse_json_object(corrected_raw)
+            answer_text = str(corrected_payload.get("answer") or corrected_raw).strip()
+            citations = self._normalize_citations(corrected_payload.get("citations", citations))
+            confidence = self._normalize_confidence(corrected_payload.get("confidence", "low"))
+            check = self._groundedness_check(question, answer_text, context)
+            corrected = True
+
+        if check.get("needs_correction"):
+            answer_text = "I found related documents, but I do not have enough grounded evidence to answer that confidently."
+            citations = []
+            confidence = "low"
+            check = {
+                "status": "insufficient_evidence",
+                "grounded": False,
+                "unsupported_claims": check.get("unsupported_claims", []),
+                "needs_correction": False,
+            }
+
+        return {
+            "answer": answer_text,
+            "citations": citations,
+            "confidence": confidence,
+            "groundedness": check,
+            "corrected": corrected,
+        }
 
     def healthcheck(self) -> None:
+        raise NotImplementedError
+
+    def _complete(self, prompt: str) -> str:
         raise NotImplementedError
 
     def _build_prompt(self, question: str, chunks: List[Dict], max_context_chars: int) -> str:
@@ -29,6 +88,112 @@ class BaseDocumentChat:
             f"Question: {question}\n"
             "Answer:"
         )
+
+    def _build_grounded_answer_prompt(self, question: str, context: str) -> str:
+        return (
+            "You are a grounded document QA assistant. Answer using only the document excerpts.\n"
+            "Return only valid JSON with this schema:\n"
+            "{\n"
+            '  "answer": "short answer grounded in the excerpts",\n'
+            '  "citations": [{"filename": "...", "chunk_index": 0, "quote": "short exact supporting quote"}],\n'
+            '  "confidence": "high|medium|low"\n'
+            "}\n"
+            "Rules:\n"
+            "- Do not use outside knowledge.\n"
+            "- Every factual claim must be supported by at least one citation.\n"
+            "- If the excerpts do not answer the question, say so in the answer and use low confidence.\n"
+            "- Keep quotes short.\n\n"
+            f"Document excerpts:\n{context}\n\n"
+            f"Question: {question}\n"
+        )
+
+    def _build_check_prompt(self, question: str, answer: str, context: str) -> str:
+        return (
+            "Check whether the answer is fully supported by the document excerpts.\n"
+            "Return only valid JSON with this schema:\n"
+            "{\n"
+            '  "grounded": true,\n'
+            '  "unsupported_claims": [],\n'
+            '  "needs_correction": false,\n'
+            '  "status": "grounded|partially_grounded|insufficient_evidence"\n'
+            "}\n"
+            "Mark unsupported any claim that is not directly supported by the excerpts.\n\n"
+            f"Document excerpts:\n{context}\n\n"
+            f"Question: {question}\n\n"
+            f"Answer to check:\n{answer}\n"
+        )
+
+    def _build_correction_prompt(self, question: str, answer: str, context: str, check: Dict[str, Any]) -> str:
+        unsupported = "; ".join(str(item) for item in check.get("unsupported_claims", [])) or "unsupported claims"
+        return (
+            "Rewrite the answer so it uses only claims supported by the document excerpts.\n"
+            "Remove unsupported claims. Return only valid JSON with this schema:\n"
+            "{\n"
+            '  "answer": "corrected grounded answer",\n'
+            '  "citations": [{"filename": "...", "chunk_index": 0, "quote": "short exact supporting quote"}],\n'
+            '  "confidence": "high|medium|low"\n'
+            "}\n\n"
+            f"Unsupported claims to remove: {unsupported}\n\n"
+            f"Document excerpts:\n{context}\n\n"
+            f"Question: {question}\n\n"
+            f"Original answer:\n{answer}\n"
+        )
+
+    def _groundedness_check(self, question: str, answer: str, context: str) -> Dict[str, Any]:
+        raw_check = self._complete(self._build_check_prompt(question, answer, context))
+        payload = self._parse_json_object(raw_check)
+        grounded = bool(payload.get("grounded", False))
+        unsupported = payload.get("unsupported_claims", [])
+        if not isinstance(unsupported, list):
+            unsupported = [str(unsupported)]
+
+        status = payload.get("status")
+        if status not in {"grounded", "partially_grounded", "insufficient_evidence"}:
+            status = "grounded" if grounded and not unsupported else "partially_grounded"
+
+        needs_correction = bool(payload.get("needs_correction", bool(unsupported) or not grounded))
+        return {
+            "status": status,
+            "grounded": grounded and not unsupported,
+            "unsupported_claims": [str(item) for item in unsupported],
+            "needs_correction": needs_correction,
+        }
+
+    def _parse_json_object(self, text: str) -> Dict[str, Any]:
+        text = (text or "").strip()
+        try:
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+            if not match:
+                return {}
+            try:
+                parsed = json.loads(match.group(0))
+                return parsed if isinstance(parsed, dict) else {}
+            except json.JSONDecodeError:
+                return {}
+
+    def _normalize_citations(self, citations: Any) -> List[Dict[str, Any]]:
+        normalized = []
+        if not isinstance(citations, list):
+            return normalized
+
+        for citation in citations[:6]:
+            if not isinstance(citation, dict):
+                continue
+            normalized.append(
+                {
+                    "filename": str(citation.get("filename", "unknown")),
+                    "chunk_index": citation.get("chunk_index", ""),
+                    "quote": str(citation.get("quote", ""))[:280],
+                }
+            )
+        return normalized
+
+    def _normalize_confidence(self, confidence: Any) -> str:
+        confidence = str(confidence).lower()
+        return confidence if confidence in {"high", "medium", "low"} else "medium"
 
     def _build_context(self, chunks: List[Dict], max_context_chars: int) -> str:
         parts = []
@@ -62,6 +227,12 @@ class OllamaDocumentChat(BaseDocumentChat):
         prompt = self._build_prompt(question, chunks, max_context_chars)
         if not prompt:
             return "I could not find enough retrieved context to answer this."
+
+        return self._complete(prompt)
+
+    def _complete(self, prompt: str) -> str:
+        if not prompt:
+            return ""
 
         response = requests.post(
             self.generate_endpoint,
@@ -101,6 +272,12 @@ class GroqDocumentChat(BaseDocumentChat):
         prompt = self._build_prompt(question, chunks, max_context_chars)
         if not prompt:
             return "I could not find enough retrieved context to answer this."
+
+        return self._complete(prompt)
+
+    def _complete(self, prompt: str) -> str:
+        if not prompt:
+            return ""
 
         response = requests.post(
             self.chat_endpoint,
