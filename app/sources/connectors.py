@@ -151,27 +151,70 @@ class SourceConnector:
         output_dir = workspace_dir / f"google_drive_{folder_id}"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        download_error = None
+        listing_error = None
+        download_errors: list[str] = []
+        folder_entries = []
+
         try:
-            downloaded_paths = gdown.download_folder(
+            folder_entries = gdown.download_folder(
                 url=source_url,
                 output=str(output_dir),
                 quiet=True,
                 use_cookies=False,
-            )
+                skip_download=True,
+            ) or []
         except Exception as exc:
-            download_error = exc
-            logger.warning("Google Drive folder download was partial or blocked: %s", exc)
-            downloaded_paths = [str(path) for path in output_dir.rglob("*") if path.is_file()]
+            listing_error = exc
+            logger.warning("Google Drive folder listing failed; trying bulk download fallback: %s", exc)
 
-        if downloaded_paths is None:
-            downloaded_paths = []
+        supported_files: list[Path] = []
+        if folder_entries:
+            for entry in folder_entries:
+                entry_id = getattr(entry, "id", None)
+                entry_path = Path(getattr(entry, "local_path", "") or getattr(entry, "path", "") or "")
+                if not entry_id or entry_path.suffix.lower() not in settings.SUPPORTED_FILE_TYPES:
+                    continue
 
-        supported_files = [
-            Path(path)
-            for path in downloaded_paths
-            if Path(path).is_file() and Path(path).suffix.lower() in settings.SUPPORTED_FILE_TYPES
-        ]
+                if not entry_path.is_absolute():
+                    entry_path = output_dir / entry_path
+                entry_path.parent.mkdir(parents=True, exist_ok=True)
+
+                try:
+                    downloaded_path = gdown.download(
+                        url=f"https://drive.google.com/uc?id={entry_id}",
+                        output=str(entry_path),
+                        quiet=True,
+                        use_cookies=False,
+                    )
+                except Exception as exc:
+                    download_errors.append(f"{entry_path.name}: {exc}")
+                    logger.warning("Skipping blocked Google Drive file %s: %s", entry_path.name, exc)
+                    continue
+
+                if downloaded_path and entry_path.is_file():
+                    supported_files.append(entry_path)
+                else:
+                    download_errors.append(f"{entry_path.name}: Drive did not return a downloadable file URL")
+                    logger.warning("Skipping Google Drive file %s because gdown returned no path", entry_path.name)
+
+        if not supported_files:
+            try:
+                downloaded_paths = gdown.download_folder(
+                    url=source_url,
+                    output=str(output_dir),
+                    quiet=True,
+                    use_cookies=False,
+                ) or []
+            except Exception as exc:
+                download_errors.append(str(exc))
+                logger.warning("Google Drive folder bulk download was blocked: %s", exc)
+                downloaded_paths = [str(path) for path in output_dir.rglob("*") if path.is_file()]
+
+            supported_files = [
+                Path(path)
+                for path in downloaded_paths
+                if Path(path).is_file() and Path(path).suffix.lower() in settings.SUPPORTED_FILE_TYPES
+            ]
 
         if not supported_files:
             detail = (
@@ -179,8 +222,10 @@ class SourceConnector:
                 "Make sure every file is shared as 'Anyone with the link', not just the folder. "
                 "Google Drive/gdown may also block files after many accesses."
             )
-            if download_error:
-                detail = f"{detail} Original Drive error: {download_error}"
+            if listing_error:
+                detail = f"{detail} Folder listing error: {listing_error}"
+            if download_errors:
+                detail = f"{detail} First skipped file error: {download_errors[0]}"
             raise RuntimeError(detail)
 
         documents = []
@@ -199,11 +244,12 @@ class SourceConnector:
                 )
             )
 
-        if download_error:
+        if download_errors:
             logger.warning(
-                "Fetched %s supported documents from Google Drive folder %s after skipping blocked files",
+                "Fetched %s supported documents from Google Drive folder %s after skipping %s blocked files",
                 len(documents),
                 folder_id,
+                len(download_errors),
             )
         else:
             logger.info("Fetched %s supported documents from Google Drive folder %s", len(documents), folder_id)
