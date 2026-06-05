@@ -91,25 +91,30 @@ class BaseDocumentChat:
 
     def _build_grounded_answer_prompt(self, question: str, context: str) -> str:
         return (
-            "You are a grounded document QA assistant. Answer using only the document excerpts.\n"
+            "You are a grounded document assistant. Complete the user's request using only the document excerpts.\n"
             "Return only valid JSON with this schema:\n"
             "{\n"
-            '  "answer": "short answer grounded in the excerpts",\n'
+            '  "answer": "answer, summary, or explanation grounded in the excerpts",\n'
             '  "citations": [{"filename": "...", "chunk_index": 0, "quote": "short exact supporting quote"}],\n'
             '  "confidence": "high|medium|low"\n'
             "}\n"
             "Rules:\n"
             "- Do not use outside knowledge.\n"
-            "- Every factual claim must be supported by at least one citation.\n"
-            "- If the excerpts do not answer the question, say so in the answer and use low confidence.\n"
+            "- Treat summarization, explanation, comparison, and extraction requests as valid document tasks.\n"
+            "- If the user asks for a summary, summarize all useful information present in the excerpts.\n"
+            "- Match the requested level of detail. For a long or detailed summary, use multiple paragraphs or bullets if the excerpts support it.\n"
+            "- Do not refuse only because the request is not phrased as a question.\n"
+            "- Every factual claim must be supported by the excerpts and the citations list should include the strongest supporting chunks.\n"
+            "- If the excerpts are limited, give the best grounded answer from them and clearly say that it is based only on the retrieved excerpts.\n"
+            "- If the excerpts do not contain relevant information, say so in the answer and use low confidence.\n"
             "- Keep quotes short.\n\n"
             f"Document excerpts:\n{context}\n\n"
-            f"Question: {question}\n"
+            f"User request: {question}\n"
         )
 
     def _build_check_prompt(self, question: str, answer: str, context: str) -> str:
         return (
-            "Check whether the answer is fully supported by the document excerpts.\n"
+            "Check whether the response is supported by the document excerpts and satisfies the user's document task.\n"
             "Return only valid JSON with this schema:\n"
             "{\n"
             '  "grounded": true,\n'
@@ -119,24 +124,24 @@ class BaseDocumentChat:
             "}\n"
             "Mark unsupported any claim that is not directly supported by the excerpts.\n\n"
             f"Document excerpts:\n{context}\n\n"
-            f"Question: {question}\n\n"
-            f"Answer to check:\n{answer}\n"
+            f"User request: {question}\n\n"
+            f"Response to check:\n{answer}\n"
         )
 
     def _build_correction_prompt(self, question: str, answer: str, context: str, check: Dict[str, Any]) -> str:
         unsupported = "; ".join(str(item) for item in check.get("unsupported_claims", [])) or "unsupported claims"
         return (
-            "Rewrite the answer so it uses only claims supported by the document excerpts.\n"
+            "Rewrite the response so it uses only claims supported by the document excerpts and still completes the user's request.\n"
             "Remove unsupported claims. Return only valid JSON with this schema:\n"
             "{\n"
-            '  "answer": "corrected grounded answer",\n'
+            '  "answer": "corrected grounded answer, summary, or explanation",\n'
             '  "citations": [{"filename": "...", "chunk_index": 0, "quote": "short exact supporting quote"}],\n'
             '  "confidence": "high|medium|low"\n'
             "}\n\n"
             f"Unsupported claims to remove: {unsupported}\n\n"
             f"Document excerpts:\n{context}\n\n"
-            f"Question: {question}\n\n"
-            f"Original answer:\n{answer}\n"
+            f"User request: {question}\n\n"
+            f"Original response:\n{answer}\n"
         )
 
     def _groundedness_check(self, question: str, answer: str, context: str) -> Dict[str, Any]:
