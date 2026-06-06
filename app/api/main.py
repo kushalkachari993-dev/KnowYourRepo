@@ -41,6 +41,10 @@ class SignInRequest(BaseModel):
     password: str
 
 
+class SignUpRequest(SignInRequest):
+    redirect_to: Optional[str] = None
+
+
 class SourceEstimateRequest(BaseModel):
     source_url: str
 
@@ -99,6 +103,13 @@ def auth_user(authorization: Optional[str] = Header(default=None)) -> Dict[str, 
         return get_auth_client().get_user(token)
     except Exception as exc:
         raise HTTPException(status_code=401, detail=f"Invalid auth token: {exc}") from exc
+
+
+def auth_failure(exc: Exception, default_status: int = 401) -> HTTPException:
+    message = str(exc) or "Authentication failed."
+    if "SUPABASE_URL" in message or "SUPABASE_ANON_KEY" in message:
+        return HTTPException(status_code=503, detail="Supabase authentication is not configured.")
+    return HTTPException(status_code=default_status, detail=message)
 
 
 def identity(session_id: str, user: Dict[str, Any]) -> Dict[str, str | bool]:
@@ -297,7 +308,11 @@ def status(
 
 @app.post("/api/auth/sign-in")
 def sign_in(payload: SignInRequest) -> Dict[str, Any]:
-    session = get_auth_client().sign_in(payload.email.strip(), payload.password)
+    try:
+        session = get_auth_client().sign_in(payload.email.strip(), payload.password)
+    except Exception as exc:
+        raise auth_failure(exc, default_status=401) from exc
+
     return {
         "user": session.user,
         "access_token": session.access_token,
@@ -306,8 +321,12 @@ def sign_in(payload: SignInRequest) -> Dict[str, Any]:
 
 
 @app.post("/api/auth/sign-up")
-def sign_up(payload: SignInRequest) -> Dict[str, Any]:
-    result = get_auth_client().sign_up(payload.email.strip(), payload.password)
+def sign_up(payload: SignUpRequest) -> Dict[str, Any]:
+    try:
+        result = get_auth_client().sign_up(payload.email.strip(), payload.password, payload.redirect_to or "")
+    except Exception as exc:
+        raise auth_failure(exc, default_status=400) from exc
+
     return {
         "user": result.user,
         "confirmation_required": result.confirmation_required,
@@ -321,11 +340,21 @@ def sign_up(payload: SignInRequest) -> Dict[str, Any]:
     }
 
 
+@app.get("/api/auth/me")
+def current_user(user: Dict[str, Any] = Depends(auth_user)) -> Dict[str, Any]:
+    if not user:
+        raise HTTPException(status_code=401, detail="Not signed in.")
+    return {"user": user}
+
+
 @app.post("/api/auth/sign-out")
 def sign_out(authorization: Optional[str] = Header(default=None)) -> Dict[str, bool]:
     token = bearer_token(authorization)
     if token:
-        get_auth_client().sign_out(token)
+        try:
+            get_auth_client().sign_out(token)
+        except Exception:
+            pass
     return {"ok": True}
 
 

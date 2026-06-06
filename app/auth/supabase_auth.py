@@ -32,10 +32,12 @@ class SupabaseAuthClient:
 
         self.auth_url = f"{self.url}/auth/v1"
 
-    def sign_up(self, email: str, password: str) -> SignUpResult:
+    def sign_up(self, email: str, password: str, redirect_to: str = "") -> SignUpResult:
+        params = {"redirect_to": redirect_to} if redirect_to else None
         response = requests.post(
             f"{self.auth_url}/signup",
             headers=self._headers(),
+            params=params,
             json={"email": email, "password": password},
             timeout=20,
         )

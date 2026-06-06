@@ -21,6 +21,12 @@ function shortSessionId(sessionId) {
   return sessionId?.replace("session:", "").slice(0, 8) || "unknown";
 }
 
+function clearStoredAuth() {
+  localStorage.removeItem("kyr_access_token");
+  localStorage.removeItem("kyr_refresh_token");
+  localStorage.removeItem("kyr_user");
+}
+
 function groundednessLabel(status) {
   if (status === "grounded") return "Grounded";
   if (status === "partially_grounded") return "Partially grounded";
@@ -54,8 +60,26 @@ function App() {
   const signedIn = Boolean(user);
 
   useEffect(() => {
-    refreshBasics();
+    bootstrapSession();
   }, []);
+
+  async function bootstrapSession() {
+    const token = localStorage.getItem("kyr_access_token");
+    if (token) {
+      try {
+        const current = await api.me();
+        const currentUser = current.user || current;
+        localStorage.setItem("kyr_user", JSON.stringify(currentUser));
+        setUser(currentUser);
+      } catch {
+        clearStoredAuth();
+        setUser(null);
+        setMessage("Your saved sign-in expired. Please sign in again.");
+      }
+    }
+
+    await refreshBasics();
+  }
 
   async function refreshBasics() {
     const [configData, statusData] = await Promise.all([api.config(), api.status(sessionId).catch(() => null)]);
@@ -99,7 +123,9 @@ function App() {
   async function handleAuth(event) {
     event.preventDefault();
     await runAction(authMode === "sign-in" ? "Signing in" : "Creating account", async () => {
-      const result = authMode === "sign-in" ? await api.signIn(email, password) : await api.signUp(email, password);
+      const redirectTo = window.location.origin;
+      const result =
+        authMode === "sign-in" ? await api.signIn(email, password) : await api.signUp(email, password, redirectTo);
       const session = result.session || result;
       if (session?.access_token) {
         localStorage.setItem("kyr_access_token", session.access_token);
@@ -116,9 +142,7 @@ function App() {
   async function handleSignOut() {
     await runAction("Signing out", async () => {
       await api.signOut().catch(() => null);
-      localStorage.removeItem("kyr_access_token");
-      localStorage.removeItem("kyr_refresh_token");
-      localStorage.removeItem("kyr_user");
+      clearStoredAuth();
       setUser(null);
       setDocuments([]);
       setChunks([]);

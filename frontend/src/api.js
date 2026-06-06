@@ -34,11 +34,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
-  signUp: (email, password) =>
+  signUp: (email, password, redirectTo) =>
     request("/api/auth/sign-up", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, redirect_to: redirectTo }),
     }),
+  me: () => request("/api/auth/me"),
   signOut: () => request("/api/auth/sign-out", { method: "POST" }),
   estimateSource: (sourceUrl) =>
     request("/api/sources/estimate", {
